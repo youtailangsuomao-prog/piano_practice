@@ -1,0 +1,240 @@
+:root {
+  color-scheme: dark;
+  --bg: #14161c;
+  --panel: #1e2129;
+  --border: #2c3038;
+  --text: #eef0f4;
+  --muted: #9aa1ac;
+  --accent: #5b8cff;
+  --correct: #3ecf8e;
+  --wrong: #ff5b6e;
+  font-family: system-ui, -apple-system, 'Segoe UI', 'Hiragino Kaku Gothic ProN', sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.app {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 24px 16px 64px;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 16px;
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+h1 {
+  margin-top: 0;
+}
+
+.import-actions {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.busy-indicator {
+  margin-bottom: 16px;
+  color: var(--muted);
+}
+
+.error {
+  color: var(--wrong);
+}
+
+.song-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.song-item {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.song-select {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  text-align: left;
+}
+
+.song-name {
+  font-weight: 600;
+}
+
+.song-meta {
+  color: var(--muted);
+  font-size: 0.85em;
+}
+
+.empty {
+  color: var(--muted);
+  list-style: none;
+}
+
+.progress-link {
+  margin-top: 24px;
+}
+
+.practice-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.practice-header h2 {
+  flex: 1;
+  margin: 0;
+}
+
+.stats {
+  color: var(--muted);
+  font-size: 0.9em;
+  white-space: nowrap;
+}
+
+.progress-bar {
+  height: 6px;
+  background: var(--panel);
+  border-radius: 999px;
+  overflow: hidden;
+  margin-bottom: 16px;
+}
+
+.progress-bar-fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.2s ease;
+}
+
+.piano-connect {
+  margin-bottom: 16px;
+}
+
+.piano-connected {
+  color: var(--correct);
+  margin-bottom: 16px;
+}
+
+.upcoming-strip {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 20px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.upcoming-chord {
+  flex: none;
+  padding: 8px 14px;
+  border-radius: 8px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.upcoming-chord.current {
+  background: var(--accent);
+  color: #08101f;
+  font-weight: 700;
+  border-color: var(--accent);
+}
+
+.piano-keyboard {
+  position: relative;
+  margin: 0 auto;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.piano-key {
+  position: absolute;
+  top: 0;
+  border: 1px solid #000;
+  border-radius: 0 0 4px 4px;
+  padding: 0;
+}
+
+.white-key {
+  background: #f4f4f4;
+  z-index: 1;
+}
+
+.black-key {
+  background: #191919;
+  z-index: 2;
+}
+
+.piano-key.key-expected.white-key {
+  background: #cfe0ff;
+}
+
+.piano-key.key-expected.black-key {
+  background: #35509c;
+}
+
+.piano-key.key-correct {
+  background: var(--correct) !important;
+}
+
+.piano-key.key-wrong {
+  background: var(--wrong) !important;
+}
+
+.practice-complete {
+  text-align: center;
+  padding: 32px 0;
+}
+
+.complete-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  margin-top: 16px;
+}
+
+.progress-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.progress-table th,
+.progress-table td {
+  text-align: left;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
