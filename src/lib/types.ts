@@ -7,6 +7,7 @@ export interface NoteEvent {
   duration: number;
   /** 0-1 */
   velocity: number;
+  hand: 'left' | 'right';
 }
 
 export interface Song {
@@ -16,6 +17,8 @@ export interface Song {
   notes: NoteEvent[];
   durationSeconds: number;
   createdAt: number;
+  bpm: number;
+  beatsPerMeasure: number;
 }
 
 export interface PracticeAttempt {

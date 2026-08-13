@@ -31,13 +31,22 @@ function layoutKeys(lowMidi: number, highMidi: number): { keys: KeyLayout[]; wid
 export interface PianoKeyboardProps {
   lowMidi: number;
   highMidi: number;
-  expected?: ReadonlySet<number>;
+  expectedRight?: ReadonlySet<number>;
+  expectedLeft?: ReadonlySet<number>;
   correct?: ReadonlySet<number>;
   wrong?: ReadonlySet<number>;
   onKeyPress?: (midi: number) => void;
 }
 
-export function PianoKeyboard({ lowMidi, highMidi, expected, correct, wrong, onKeyPress }: PianoKeyboardProps) {
+export function PianoKeyboard({
+  lowMidi,
+  highMidi,
+  expectedRight,
+  expectedLeft,
+  correct,
+  wrong,
+  onKeyPress,
+}: PianoKeyboardProps) {
   const { keys, width } = layoutKeys(lowMidi, highMidi);
   const whiteKeys = keys.filter((k) => k.isWhite);
   const blackKeys = keys.filter((k) => !k.isWhite);
@@ -46,7 +55,8 @@ export function PianoKeyboard({ lowMidi, highMidi, expected, correct, wrong, onK
     const classes = [base];
     if (correct?.has(midi)) classes.push('key-correct');
     else if (wrong?.has(midi)) classes.push('key-wrong');
-    else if (expected?.has(midi)) classes.push('key-expected');
+    else if (expectedRight?.has(midi)) classes.push('key-expected-right');
+    else if (expectedLeft?.has(midi)) classes.push('key-expected-left');
     return classes.join(' ');
   };
 

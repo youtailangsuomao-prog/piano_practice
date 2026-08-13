@@ -199,12 +199,20 @@ h1 {
   z-index: 2;
 }
 
-.piano-key.key-expected.white-key {
+.piano-key.key-expected-right.white-key {
   background: #cfe0ff;
 }
 
-.piano-key.key-expected.black-key {
+.piano-key.key-expected-right.black-key {
   background: #35509c;
+}
+
+.piano-key.key-expected-left.white-key {
+  background: #ffdbb0;
+}
+
+.piano-key.key-expected-left.black-key {
+  background: #a3611c;
 }
 
 .piano-key.key-correct {
@@ -213,6 +221,49 @@ h1 {
 
 .piano-key.key-wrong {
   background: var(--wrong) !important;
+}
+
+.hand-legend {
+  display: flex;
+  gap: 16px;
+  justify-content: center;
+  margin: 8px 0 16px;
+  font-size: 0.85em;
+  color: var(--muted);
+}
+
+.hand-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.hand-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  display: inline-block;
+}
+
+.hand-swatch.right {
+  background: #5b8cff;
+}
+
+.hand-swatch.left {
+  background: #d97f28;
+}
+
+.phrase-intro,
+.phrase-result {
+  text-align: center;
+  padding: 24px 0;
+}
+
+.phrase-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  margin-top: 16px;
 }
 
 .practice-complete {

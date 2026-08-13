@@ -1,11 +1,13 @@
-import { useEffect, useMemo, useReducer, useRef } from 'react';
+import { useEffect, useMemo, useReducer, useRef, useState, useCallback } from 'react';
 import { Song, PracticeAttempt } from '../lib/types';
 import { Chord, groupNotesIntoChords } from '../lib/chords';
-import { midiToNoteName } from '../lib/notation';
+import { buildPhrases } from '../lib/phrases';
+import { playNotes, stopPlayback } from '../lib/synthPlayback';
 import { usePianoInput } from '../hooks/usePianoInput';
+import { PianoNoteListener } from '../lib/webMidiInput';
 import { PianoKeyboard } from './PianoKeyboard';
 
-interface PracticeState {
+interface AttemptState {
   chordIndex: number;
   pressed: Set<number>;
   correct: number;
@@ -14,17 +16,15 @@ interface PracticeState {
   finished: boolean;
 }
 
-type Action = { type: 'note-on'; midi: number } | { type: 'clear-wrong-flash' } | { type: 'restart' };
+type Action = { type: 'note-on'; midi: number } | { type: 'clear-wrong-flash' };
 
-function makeInitialState(): PracticeState {
+function makeInitialState(): AttemptState {
   return { chordIndex: 0, pressed: new Set(), correct: 0, wrong: 0, wrongFlash: new Set(), finished: false };
 }
 
 function makeReducer(chords: Chord[]) {
-  return (state: PracticeState, action: Action): PracticeState => {
+  return (state: AttemptState, action: Action): AttemptState => {
     switch (action.type) {
-      case 'restart':
-        return makeInitialState();
       case 'clear-wrong-flash':
         return { ...state, wrongFlash: new Set() };
       case 'note-on': {
@@ -60,19 +60,85 @@ function makeReducer(chords: Chord[]) {
   };
 }
 
+interface PhraseAttemptProps {
+  chords: Chord[];
+  lowMidi: number;
+  highMidi: number;
+  subscribe: (listener: PianoNoteListener) => () => void;
+  onComplete: (correct: number, wrong: number) => void;
+}
+
+function PhraseAttempt({ chords, lowMidi, highMidi, subscribe, onComplete }: PhraseAttemptProps) {
+  const reducer = useMemo(() => makeReducer(chords), [chords]);
+  const [state, dispatch] = useReducer(reducer, undefined, makeInitialState);
+  const reportedRef = useRef(false);
+
+  useEffect(() => {
+    return subscribe((event) => {
+      if (event.on) dispatch({ type: 'note-on', midi: event.midi });
+    });
+  }, [subscribe]);
+
+  useEffect(() => {
+    if (state.wrongFlash.size === 0) return;
+    const timer = setTimeout(() => dispatch({ type: 'clear-wrong-flash' }), 350);
+    return () => clearTimeout(timer);
+  }, [state.wrongFlash]);
+
+  useEffect(() => {
+    if (state.finished && !reportedRef.current) {
+      reportedRef.current = true;
+      onComplete(state.correct, state.wrong);
+    }
+  }, [state.finished, state.correct, state.wrong, onComplete]);
+
+  const currentChord = chords[state.chordIndex];
+  const expectedRight = useMemo(
+    () => new Set((currentChord?.notes ?? []).filter((n) => n.hand !== 'left').map((n) => n.midi)),
+    [currentChord],
+  );
+  const expectedLeft = useMemo(
+    () => new Set((currentChord?.notes ?? []).filter((n) => n.hand === 'left').map((n) => n.midi)),
+    [currentChord],
+  );
+
+  return (
+    <>
+      <div className="stats">この区間: 正解 {state.correct} / ミス {state.wrong}</div>
+      <PianoKeyboard
+        lowMidi={lowMidi}
+        highMidi={highMidi}
+        expectedRight={expectedRight}
+        expectedLeft={expectedLeft}
+        correct={state.pressed}
+        wrong={state.wrongFlash}
+        onKeyPress={(midi) => dispatch({ type: 'note-on', midi })}
+      />
+    </>
+  );
+}
+
 interface PracticeViewProps {
   song: Song;
   onExit: () => void;
   onFinish: (attempt: PracticeAttempt) => void;
 }
 
+type Stage = 'intro' | 'attempt' | 'result';
+
 export function PracticeView({ song, onExit, onFinish }: PracticeViewProps) {
-  const chords = useMemo(() => groupNotesIntoChords(song.notes), [song]);
-  const notesTotal = useMemo(() => chords.reduce((sum, c) => sum + c.notes.length, 0), [chords]);
-  const reducer = useMemo(() => makeReducer(chords), [chords]);
-  const [state, dispatch] = useReducer(reducer, undefined, makeInitialState);
-  const reportedRef = useRef(false);
+  const phrases = useMemo(() => buildPhrases(song), [song]);
   const pianoInput = usePianoInput();
+
+  const [phraseIndex, setPhraseIndex] = useState(0);
+  const [attemptKey, setAttemptKey] = useState(0);
+  const [stage, setStage] = useState<Stage>('intro');
+  const [lastResult, setLastResult] = useState<{ correct: number; wrong: number } | null>(null);
+  const [totals, setTotals] = useState({ correct: 0, wrong: 0 });
+  const [songFinished, setSongFinished] = useState(false);
+  const reportedRef = useRef(false);
+
+  useEffect(() => () => stopPlayback(), []);
 
   const { lowMidi, highMidi } = useMemo(() => {
     if (song.notes.length === 0) return { lowMidi: 60, highMidi: 72 };
@@ -83,44 +149,55 @@ export function PracticeView({ song, onExit, onFinish }: PracticeViewProps) {
     };
   }, [song]);
 
-  useEffect(() => {
-    reportedRef.current = false;
-  }, [song]);
+  const currentPhrase = phrases[phraseIndex];
+  const phraseChords = useMemo(() => groupNotesIntoChords(currentPhrase?.notes ?? []), [currentPhrase]);
+
+  const handleListen = useCallback(() => {
+    if (!currentPhrase) return;
+    playNotes(currentPhrase.notes, currentPhrase.startTime);
+  }, [currentPhrase]);
+
+  const handleStartAttempt = () => {
+    stopPlayback();
+    setStage('attempt');
+  };
+
+  const handleAttemptComplete = useCallback((correct: number, wrong: number) => {
+    setTotals((t) => ({ correct: t.correct + correct, wrong: t.wrong + wrong }));
+    setLastResult({ correct, wrong });
+    setStage('result');
+  }, []);
+
+  const handleNextPhrase = () => {
+    if (phraseIndex + 1 >= phrases.length) {
+      setSongFinished(true);
+      return;
+    }
+    setPhraseIndex((i) => i + 1);
+    setAttemptKey((k) => k + 1);
+    setStage('intro');
+  };
+
+  const handleRetryPhrase = () => {
+    setAttemptKey((k) => k + 1);
+    setStage('intro');
+  };
 
   useEffect(() => {
-    return pianoInput.subscribe((event) => {
-      if (event.on) dispatch({ type: 'note-on', midi: event.midi });
-    });
-  }, [pianoInput]);
-
-  useEffect(() => {
-    if (state.wrongFlash.size === 0) return;
-    const timer = setTimeout(() => dispatch({ type: 'clear-wrong-flash' }), 350);
-    return () => clearTimeout(timer);
-  }, [state.wrongFlash]);
-
-  useEffect(() => {
-    if (!state.finished || reportedRef.current) return;
+    if (!songFinished || reportedRef.current) return;
     reportedRef.current = true;
-    const attempted = state.correct + state.wrong;
+    const attempted = totals.correct + totals.wrong;
     onFinish({
       songId: song.id,
       timestamp: Date.now(),
-      notesTotal,
-      notesCorrect: state.correct,
-      accuracy: attempted > 0 ? state.correct / attempted : 1,
+      notesTotal: song.notes.length,
+      notesCorrect: totals.correct,
+      accuracy: attempted > 0 ? totals.correct / attempted : 1,
     });
-  }, [state.finished, state.correct, state.wrong, song.id, notesTotal, onFinish]);
+  }, [songFinished, totals, song.id, song.notes.length, onFinish]);
 
-  const currentChord = chords[state.chordIndex];
-  const expectedMidis = useMemo(
-    () => new Set(currentChord?.notes.map((n) => n.midi) ?? []),
-    [currentChord],
-  );
-  const upcoming = chords.slice(state.chordIndex, state.chordIndex + 8);
-
-  const attempted = state.correct + state.wrong;
-  const liveAccuracy = attempted > 0 ? Math.round((state.correct / attempted) * 100) : 100;
+  const attempted = totals.correct + totals.wrong;
+  const liveAccuracy = attempted > 0 ? Math.round((totals.correct / attempted) * 100) : 100;
 
   return (
     <section className="practice-view">
@@ -130,14 +207,14 @@ export function PracticeView({ song, onExit, onFinish }: PracticeViewProps) {
         </button>
         <h2>{song.name}</h2>
         <div className="stats">
-          正解 {state.correct} / ミス {state.wrong} ・ 精度 {liveAccuracy}%
+          正解 {totals.correct} / ミス {totals.wrong} ・ 精度 {liveAccuracy}%
         </div>
       </header>
 
       <div className="progress-bar">
         <div
           className="progress-bar-fill"
-          style={{ width: `${chords.length ? (state.chordIndex / chords.length) * 100 : 0}%` }}
+          style={{ width: `${phrases.length ? (phraseIndex / phrases.length) * 100 : 0}%` }}
         />
       </div>
 
@@ -154,40 +231,87 @@ export function PracticeView({ song, onExit, onFinish }: PracticeViewProps) {
         </div>
       )}
       {pianoInput.status === 'connected' && (
-        <p className="piano-connected">
-          接続中: {pianoInput.deviceNames.join(', ') || '入力デバイス'}
-        </p>
+        <p className="piano-connected">接続中: {pianoInput.deviceNames.join(', ') || '入力デバイス'}</p>
       )}
 
-      {!state.finished && currentChord && (
+      {!songFinished && currentPhrase && (
         <>
-          <div className="upcoming-strip">
-            {upcoming.map((chord, i) => (
-              <div key={chord.time} className={`upcoming-chord ${i === 0 ? 'current' : ''}`}>
-                {chord.notes.map((n) => midiToNoteName(n.midi)).join('+')}
-              </div>
-            ))}
+          <p className="stats">
+            フレーズ {phraseIndex + 1} / {phrases.length}
+          </p>
+
+          <div className="hand-legend">
+            <span>
+              <span className="hand-swatch right" />
+              右手
+            </span>
+            <span>
+              <span className="hand-swatch left" />
+              左手
+            </span>
           </div>
 
-          <PianoKeyboard
-            lowMidi={lowMidi}
-            highMidi={highMidi}
-            expected={expectedMidis}
-            correct={state.pressed}
-            wrong={state.wrongFlash}
-            onKeyPress={(midi) => dispatch({ type: 'note-on', midi })}
-          />
+          {stage === 'intro' && (
+            <div className="phrase-intro">
+              <p>お手本を聴いてから弾いてみましょう。</p>
+              <div className="phrase-actions">
+                <button type="button" onClick={handleListen}>
+                  ▶ お手本を聴く
+                </button>
+                <button type="button" onClick={handleStartAttempt}>
+                  🎹 弾いてみる
+                </button>
+              </div>
+            </div>
+          )}
+
+          {stage === 'attempt' && (
+            <PhraseAttempt
+              key={attemptKey}
+              chords={phraseChords}
+              lowMidi={lowMidi}
+              highMidi={highMidi}
+              subscribe={pianoInput.subscribe}
+              onComplete={handleAttemptComplete}
+            />
+          )}
+
+          {stage === 'result' && lastResult && (
+            <div className="phrase-result">
+              {lastResult.wrong === 0 ? (
+                <>
+                  <p>できました！</p>
+                  <div className="phrase-actions">
+                    <button type="button" onClick={handleNextPhrase}>
+                      {phraseIndex + 1 >= phrases.length ? '曲を完了する' : '次のフレーズへ →'}
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p>ミスが{lastResult.wrong}回ありました。もう一度聴いてから挑戦してみましょう。</p>
+                  <div className="phrase-actions">
+                    <button type="button" onClick={handleListen}>
+                      ▶ もう一度聴く
+                    </button>
+                    <button type="button" onClick={handleRetryPhrase}>
+                      🎹 もう一度弾く
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
         </>
       )}
 
-      {state.finished && (
+      {songFinished && (
         <div className="practice-complete">
           <h3>練習完了！</h3>
-          <p>精度 {liveAccuracy}%（正解 {state.correct} / ミス {state.wrong}）</p>
+          <p>
+            精度 {liveAccuracy}%（正解 {totals.correct} / ミス {totals.wrong}）
+          </p>
           <div className="complete-actions">
-            <button type="button" onClick={() => dispatch({ type: 'restart' })}>
-              もう一度練習する
-            </button>
             <button type="button" onClick={onExit}>
               曲一覧に戻る
             </button>

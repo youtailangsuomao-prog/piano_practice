@@ -5,6 +5,7 @@ import {
   outputToNotesPoly,
 } from '@spotify/basic-pitch';
 import { NoteEvent, Song } from './types';
+import { medianPitch } from './hands';
 
 const MODEL_URL = `${import.meta.env.BASE_URL}basic-pitch-model/model.json`;
 const BASIC_PITCH_SAMPLE_RATE = 22050;
@@ -63,6 +64,7 @@ export async function songFromAudioFile(
     addPitchBendsToNoteEvents(contours, outputToNotesPoly(frames, onsets, 0.25, 0.25, 5)),
   );
 
+  const threshold = medianPitch(noteEvents.map((n) => n.pitchMidi));
   const notes: NoteEvent[] = noteEvents
     .map(
       (n): NoteEvent => ({
@@ -70,6 +72,7 @@ export async function songFromAudioFile(
         time: n.startTimeSeconds,
         duration: n.durationSeconds,
         velocity: n.amplitude,
+        hand: n.pitchMidi >= threshold ? 'right' : 'left',
       }),
     )
     .sort((a, b) => a.time - b.time);
@@ -83,5 +86,9 @@ export async function songFromAudioFile(
     notes,
     durationSeconds,
     createdAt: Date.now(),
+    // basic-pitch doesn't detect tempo/time signature, so we assume a common default
+    // for phrase segmentation (4/4 at 120bpm ≈ 4 measures / 8 seconds).
+    bpm: 120,
+    beatsPerMeasure: 4,
   };
 }
