@@ -140,6 +140,39 @@ h1 {
   transition: width 0.2s ease;
 }
 
+.phrase-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+
+.phrase-pill {
+  min-width: 32px;
+  height: 32px;
+  padding: 0 6px;
+  border-radius: 6px;
+  font-size: 0.85em;
+  color: var(--muted);
+}
+
+.phrase-pill.done {
+  background: rgba(62, 207, 142, 0.15);
+  border-color: var(--correct);
+  color: var(--correct);
+}
+
+.phrase-pill.current {
+  border-color: var(--accent);
+  color: var(--text);
+  font-weight: 700;
+}
+
+.phrase-pill.locked {
+  opacity: 0.35;
+  cursor: default;
+}
+
 .piano-connect {
   margin-bottom: 16px;
 }

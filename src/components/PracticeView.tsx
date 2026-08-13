@@ -136,9 +136,12 @@ export function PracticeView({ song, onExit, onFinish }: PracticeViewProps) {
   const pianoInput = usePianoInput();
   const savedProgress = useMemo(() => loadSongProgress(song.id), [song.id]);
 
-  const [phraseIndex, setPhraseIndex] = useState(() =>
-    Math.min(savedProgress?.phraseIndex ?? 0, Math.max(phrases.length - 1, 0)),
-  );
+  const initialPhraseIndex = Math.min(savedProgress?.phraseIndex ?? 0, Math.max(phrases.length - 1, 0));
+  const [phraseIndex, setPhraseIndex] = useState(initialPhraseIndex);
+  // The furthest phrase reached so far: resuming continues from here, and only phrases up
+  // to this point are unlocked for (re)selection. Navigating back to replay an earlier
+  // phrase moves `phraseIndex` without moving this backward.
+  const [furthestPhraseIndex, setFurthestPhraseIndex] = useState(initialPhraseIndex);
   const [attemptKey, setAttemptKey] = useState(0);
   const [stage, setStage] = useState<Stage>('intro');
   const [lastResult, setLastResult] = useState<{ correct: number; wrong: number } | null>(null);
@@ -147,7 +150,11 @@ export function PracticeView({ song, onExit, onFinish }: PracticeViewProps) {
     wrong: savedProgress?.totalsWrong ?? 0,
   }));
   const [songFinished, setSongFinished] = useState(false);
-  const reportedRef = useRef(false);
+  const prevSongFinishedRef = useRef(false);
+
+  useEffect(() => {
+    setFurthestPhraseIndex((f) => Math.max(f, phraseIndex));
+  }, [phraseIndex]);
 
   // Playback visuals: which notes are currently sounding, and where in the song we are,
   // while auditioning a phrase (as opposed to the chord-index-driven state during an attempt).
@@ -255,29 +262,40 @@ export function PracticeView({ song, onExit, onFinish }: PracticeViewProps) {
     setStage('intro');
   };
 
+  const handleSelectPhrase = (index: number) => {
+    if (index > furthestPhraseIndex) return;
+    stopPlayback();
+    stopPlaybackVisuals();
+    setPhraseIndex(index);
+    setAttemptKey((k) => k + 1);
+    setStage('intro');
+    setSongFinished(false);
+  };
+
   useEffect(() => {
     if (songFinished) return;
     saveSongProgress({
       songId: song.id,
-      phraseIndex,
+      phraseIndex: furthestPhraseIndex,
       totalsCorrect: totals.correct,
       totalsWrong: totals.wrong,
       updatedAt: Date.now(),
     });
-  }, [song.id, phraseIndex, totals, songFinished]);
+  }, [song.id, furthestPhraseIndex, totals, songFinished]);
 
   useEffect(() => {
-    if (!songFinished || reportedRef.current) return;
-    reportedRef.current = true;
-    clearSongProgress(song.id);
-    const attempted = totals.correct + totals.wrong;
-    onFinish({
-      songId: song.id,
-      timestamp: Date.now(),
-      notesTotal: song.notes.length,
-      notesCorrect: totals.correct,
-      accuracy: attempted > 0 ? totals.correct / attempted : 1,
-    });
+    if (songFinished && !prevSongFinishedRef.current) {
+      clearSongProgress(song.id);
+      const attempted = totals.correct + totals.wrong;
+      onFinish({
+        songId: song.id,
+        timestamp: Date.now(),
+        notesTotal: song.notes.length,
+        notesCorrect: totals.correct,
+        accuracy: attempted > 0 ? totals.correct / attempted : 1,
+      });
+    }
+    prevSongFinishedRef.current = songFinished;
   }, [songFinished, totals, song.id, song.notes.length, onFinish]);
 
   const attempted = totals.correct + totals.wrong;
@@ -298,9 +316,30 @@ export function PracticeView({ song, onExit, onFinish }: PracticeViewProps) {
       <div className="progress-bar">
         <div
           className="progress-bar-fill"
-          style={{ width: `${phrases.length ? (phraseIndex / phrases.length) * 100 : 0}%` }}
+          style={{ width: `${phrases.length ? (furthestPhraseIndex / phrases.length) * 100 : 0}%` }}
         />
       </div>
+
+      {phrases.length > 1 && (
+        <div className="phrase-list">
+          {phrases.map((_, i) => {
+            const locked = i > furthestPhraseIndex;
+            const done = i < furthestPhraseIndex || songFinished;
+            return (
+              <button
+                key={i}
+                type="button"
+                className={`phrase-pill ${i === phraseIndex && !songFinished ? 'current' : ''} ${done ? 'done' : ''} ${locked ? 'locked' : ''}`}
+                disabled={locked}
+                onClick={() => handleSelectPhrase(i)}
+                title={locked ? 'まだ到達していません' : `フレーズ${i + 1}を練習する`}
+              >
+                {i + 1}
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {pianoInput.status !== 'connected' && (
         <div className="piano-connect">
