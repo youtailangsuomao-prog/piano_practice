@@ -28,3 +28,12 @@ export interface PracticeAttempt {
   notesCorrect: number;
   accuracy: number;
 }
+
+/** In-progress state for a song that hasn't been fully completed yet, so reopening it can resume. */
+export interface SongProgress {
+  songId: string;
+  phraseIndex: number;
+  totalsCorrect: number;
+  totalsWrong: number;
+  updatedAt: number;
+}

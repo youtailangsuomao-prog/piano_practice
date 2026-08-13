@@ -2,7 +2,8 @@ import { useEffect, useMemo, useReducer, useRef, useState, useCallback } from 'r
 import { Song, PracticeAttempt } from '../lib/types';
 import { Chord, groupNotesIntoChords } from '../lib/chords';
 import { buildPhrases } from '../lib/phrases';
-import { playNotes, stopPlayback } from '../lib/synthPlayback';
+import { playNotes, stopPlayback, PlaybackNoteEvent } from '../lib/synthPlayback';
+import { loadSongProgress, saveSongProgress, clearSongProgress } from '../lib/songProgressStorage';
 import { usePianoInput } from '../hooks/usePianoInput';
 import { PianoNoteListener } from '../lib/webMidiInput';
 import { PianoKeyboard } from './PianoKeyboard';
@@ -133,16 +134,45 @@ type Stage = 'intro' | 'attempt' | 'result';
 export function PracticeView({ song, onExit, onFinish }: PracticeViewProps) {
   const phrases = useMemo(() => buildPhrases(song), [song]);
   const pianoInput = usePianoInput();
+  const savedProgress = useMemo(() => loadSongProgress(song.id), [song.id]);
 
-  const [phraseIndex, setPhraseIndex] = useState(0);
+  const [phraseIndex, setPhraseIndex] = useState(() =>
+    Math.min(savedProgress?.phraseIndex ?? 0, Math.max(phrases.length - 1, 0)),
+  );
   const [attemptKey, setAttemptKey] = useState(0);
   const [stage, setStage] = useState<Stage>('intro');
   const [lastResult, setLastResult] = useState<{ correct: number; wrong: number } | null>(null);
-  const [totals, setTotals] = useState({ correct: 0, wrong: 0 });
+  const [totals, setTotals] = useState(() => ({
+    correct: savedProgress?.totalsCorrect ?? 0,
+    wrong: savedProgress?.totalsWrong ?? 0,
+  }));
   const [songFinished, setSongFinished] = useState(false);
   const reportedRef = useRef(false);
 
-  useEffect(() => () => stopPlayback(), []);
+  // Playback visuals: which notes are currently sounding, and where in the song we are,
+  // while auditioning a phrase (as opposed to the chord-index-driven state during an attempt).
+  const [playbackTime, setPlaybackTime] = useState<number | null>(null);
+  const [playingRight, setPlayingRight] = useState<Set<number>>(new Set());
+  const [playingLeft, setPlayingLeft] = useState<Set<number>>(new Set());
+  const rafRef = useRef<number | null>(null);
+
+  const stopPlaybackVisuals = useCallback(() => {
+    if (rafRef.current !== null) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    }
+    setPlaybackTime(null);
+    setPlayingRight(new Set());
+    setPlayingLeft(new Set());
+  }, []);
+
+  useEffect(
+    () => () => {
+      stopPlayback();
+      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+    },
+    [],
+  );
 
   const { lowMidi, highMidi } = useMemo(() => {
     if (song.notes.length === 0) return { lowMidi: 60, highMidi: 72 };
@@ -158,11 +188,45 @@ export function PracticeView({ song, onExit, onFinish }: PracticeViewProps) {
 
   const handleListen = useCallback(() => {
     if (!currentPhrase) return;
-    playNotes(currentPhrase.notes, currentPhrase.startTime);
-  }, [currentPhrase]);
+    stopPlaybackVisuals();
+    const phrase = currentPhrase;
+    const startWallTime = performance.now();
+    setPlaybackTime(phrase.startTime);
+
+    const tick = () => {
+      const elapsed = (performance.now() - startWallTime) / 1000;
+      const t = phrase.startTime + elapsed;
+      if (t >= phrase.endTime) {
+        rafRef.current = null;
+        return;
+      }
+      setPlaybackTime(t);
+      rafRef.current = requestAnimationFrame(tick);
+    };
+    rafRef.current = requestAnimationFrame(tick);
+
+    const handleNoteEvent = (event: PlaybackNoteEvent) => {
+      const setter = event.hand === 'left' ? setPlayingLeft : setPlayingRight;
+      setter((prev) => {
+        const next = new Set(prev);
+        if (event.on) next.add(event.midi);
+        else next.delete(event.midi);
+        return next;
+      });
+    };
+
+    void playNotes(phrase.notes, phrase.startTime, handleNoteEvent).finally(() => {
+      if (rafRef.current !== null) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
+      setPlaybackTime(null);
+    });
+  }, [currentPhrase, stopPlaybackVisuals]);
 
   const handleStartAttempt = () => {
     stopPlayback();
+    stopPlaybackVisuals();
     setStage('attempt');
   };
 
@@ -173,6 +237,8 @@ export function PracticeView({ song, onExit, onFinish }: PracticeViewProps) {
   }, []);
 
   const handleNextPhrase = () => {
+    stopPlayback();
+    stopPlaybackVisuals();
     if (phraseIndex + 1 >= phrases.length) {
       setSongFinished(true);
       return;
@@ -183,13 +249,27 @@ export function PracticeView({ song, onExit, onFinish }: PracticeViewProps) {
   };
 
   const handleRetryPhrase = () => {
+    stopPlayback();
+    stopPlaybackVisuals();
     setAttemptKey((k) => k + 1);
     setStage('intro');
   };
 
   useEffect(() => {
+    if (songFinished) return;
+    saveSongProgress({
+      songId: song.id,
+      phraseIndex,
+      totalsCorrect: totals.correct,
+      totalsWrong: totals.wrong,
+      updatedAt: Date.now(),
+    });
+  }, [song.id, phraseIndex, totals, songFinished]);
+
+  useEffect(() => {
     if (!songFinished || reportedRef.current) return;
     reportedRef.current = true;
+    clearSongProgress(song.id);
     const attempted = totals.correct + totals.wrong;
     onFinish({
       songId: song.id,
@@ -269,7 +349,7 @@ export function PracticeView({ song, onExit, onFinish }: PracticeViewProps) {
             </div>
           )}
 
-          {stage === 'attempt' && (
+          {stage === 'attempt' ? (
             <PhraseAttempt
               key={attemptKey}
               chords={phraseChords}
@@ -278,6 +358,21 @@ export function PracticeView({ song, onExit, onFinish }: PracticeViewProps) {
               subscribe={pianoInput.subscribe}
               onComplete={handleAttemptComplete}
             />
+          ) : (
+            <>
+              <NoteWaterfall
+                lowMidi={lowMidi}
+                highMidi={highMidi}
+                notes={currentPhrase.notes}
+                currentTime={playbackTime ?? currentPhrase.startTime}
+              />
+              <PianoKeyboard
+                lowMidi={lowMidi}
+                highMidi={highMidi}
+                expectedRight={playingRight}
+                expectedLeft={playingLeft}
+              />
+            </>
           )}
 
           {stage === 'result' && lastResult && (

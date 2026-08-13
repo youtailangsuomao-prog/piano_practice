@@ -10,7 +10,14 @@ function midiToFrequency(midi: number): number {
   return 440 * Math.pow(2, (midi - 69) / 12);
 }
 
+export interface PlaybackNoteEvent {
+  midi: number;
+  hand: 'left' | 'right';
+  on: boolean;
+}
+
 let activeOscillators: OscillatorNode[] = [];
+let activeTimers: ReturnType<typeof setTimeout>[] = [];
 
 export function stopPlayback() {
   activeOscillators.forEach((osc) => {
@@ -21,14 +28,22 @@ export function stopPlayback() {
     }
   });
   activeOscillators = [];
+  activeTimers.forEach((timer) => clearTimeout(timer));
+  activeTimers = [];
 }
 
 /**
  * Play a group of notes through a simple triangle-wave synth, timed relative to
  * `groupStartTime` (so a phrase can be played starting from t=0 of the playback).
+ * `onEvent` (optional) fires as each note starts/stops sounding, in real wall-clock
+ * time, so UI (e.g. the keyboard) can be lit up in sync with the audio.
  * Resolves once the last note has finished ringing out.
  */
-export async function playNotes(notes: NoteEvent[], groupStartTime: number): Promise<void> {
+export async function playNotes(
+  notes: NoteEvent[],
+  groupStartTime: number,
+  onEvent?: (event: PlaybackNoteEvent) => void,
+): Promise<void> {
   stopPlayback();
   if (notes.length === 0) return;
 
@@ -62,6 +77,13 @@ export async function playNotes(notes: NoteEvent[], groupStartTime: number): Pro
     osc.start(startAt);
     osc.stop(endAt + 0.05);
     activeOscillators.push(osc);
+
+    if (onEvent) {
+      const onDelayMs = Math.max(0, (startAt - ctx.currentTime) * 1000);
+      const offDelayMs = Math.max(0, (endAt - ctx.currentTime) * 1000);
+      activeTimers.push(setTimeout(() => onEvent({ midi: note.midi, hand: note.hand, on: true }), onDelayMs));
+      activeTimers.push(setTimeout(() => onEvent({ midi: note.midi, hand: note.hand, on: false }), offDelayMs));
+    }
   });
 
   return new Promise((resolve) => {
