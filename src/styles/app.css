@@ -174,6 +174,52 @@ h1 {
   border-color: var(--accent);
 }
 
+.note-waterfall {
+  position: relative;
+  margin: 0 auto;
+  max-width: 100%;
+  overflow: hidden;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, 0.03) 100%);
+  border: 1px solid var(--border);
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+}
+
+.note-waterfall-track {
+  position: relative;
+  width: 100%;
+  height: 0;
+  transition: transform 0.2s ease-out;
+}
+
+.falling-note {
+  position: absolute;
+  border-radius: 4px;
+  opacity: 0.55;
+}
+
+.falling-note-now {
+  opacity: 1;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.4);
+}
+
+.falling-note-right {
+  background: var(--accent);
+}
+
+.falling-note-left {
+  background: #d97f28;
+}
+
+.note-waterfall-hitline {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: var(--muted);
+}
+
 .piano-keyboard {
   position: relative;
   margin: 0 auto;

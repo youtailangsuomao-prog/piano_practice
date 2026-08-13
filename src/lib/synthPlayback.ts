@@ -28,11 +28,14 @@ export function stopPlayback() {
  * `groupStartTime` (so a phrase can be played starting from t=0 of the playback).
  * Resolves once the last note has finished ringing out.
  */
-export function playNotes(notes: NoteEvent[], groupStartTime: number): Promise<void> {
+export async function playNotes(notes: NoteEvent[], groupStartTime: number): Promise<void> {
   stopPlayback();
-  if (notes.length === 0) return Promise.resolve();
+  if (notes.length === 0) return;
 
   const ctx = getAudioContext();
+  if (ctx.state !== 'running') {
+    await ctx.resume();
+  }
   const startDelay = 0.05;
   const now = ctx.currentTime + startDelay;
   let latestEnd = 0;

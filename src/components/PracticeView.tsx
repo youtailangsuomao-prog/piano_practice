@@ -6,6 +6,7 @@ import { playNotes, stopPlayback } from '../lib/synthPlayback';
 import { usePianoInput } from '../hooks/usePianoInput';
 import { PianoNoteListener } from '../lib/webMidiInput';
 import { PianoKeyboard } from './PianoKeyboard';
+import { NoteWaterfall } from './NoteWaterfall';
 
 interface AttemptState {
   chordIndex: number;
@@ -93,6 +94,8 @@ function PhraseAttempt({ chords, lowMidi, highMidi, subscribe, onComplete }: Phr
   }, [state.finished, state.correct, state.wrong, onComplete]);
 
   const currentChord = chords[state.chordIndex];
+  const currentTime = currentChord?.time ?? chords[chords.length - 1]?.time ?? 0;
+  const allNotes = useMemo(() => chords.flatMap((c) => c.notes), [chords]);
   const expectedRight = useMemo(
     () => new Set((currentChord?.notes ?? []).filter((n) => n.hand !== 'left').map((n) => n.midi)),
     [currentChord],
@@ -105,6 +108,7 @@ function PhraseAttempt({ chords, lowMidi, highMidi, subscribe, onComplete }: Phr
   return (
     <>
       <div className="stats">この区間: 正解 {state.correct} / ミス {state.wrong}</div>
+      <NoteWaterfall lowMidi={lowMidi} highMidi={highMidi} notes={allNotes} currentTime={currentTime} />
       <PianoKeyboard
         lowMidi={lowMidi}
         highMidi={highMidi}
