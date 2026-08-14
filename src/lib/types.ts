@@ -13,7 +13,7 @@ export interface NoteEvent {
 export interface Song {
   id: string;
   name: string;
-  source: 'midi-import' | 'audio-transcription' | 'musicxml-import';
+  source: 'midi-import' | 'audio-transcription';
   notes: NoteEvent[];
   durationSeconds: number;
   createdAt: number;
