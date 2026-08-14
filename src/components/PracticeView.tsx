@@ -28,6 +28,15 @@ function computeKeyRange(notes: NoteEvent[]): { lowMidi: number; highMidi: numbe
   };
 }
 
+type HandFilter = 'both' | 'left' | 'right';
+
+/** Practicing one hand at a time is a standard technique before combining them; this
+ * narrows a phrase's notes down to just the selected hand (or leaves them all in). */
+function filterByHand(notes: NoteEvent[], filter: HandFilter): NoteEvent[] {
+  if (filter === 'both') return notes;
+  return notes.filter((n) => n.hand === filter);
+}
+
 /** Which keys the falling notes are currently touching (or about to touch) at `currentTime`. */
 function computeTouchingKeys(notes: NoteEvent[], currentTime: number): { right: Set<number>; left: Set<number> } {
   const right = new Set<number>();
@@ -296,6 +305,9 @@ type Mode = 'beginner' | 'advanced';
 export function PracticeView({ song, onExit, onFinish }: PracticeViewProps) {
   const pianoInput = usePianoInput();
   const [mode, setModeState] = useState<Mode>('beginner');
+  // Which hand's notes to show/require/play, shared across both modes. Session-local
+  // only (not persisted): reopening the song always starts back at "both hands".
+  const [handFilter, setHandFilter] = useState<HandFilter>('both');
 
   // ---- Beginner mode state ----
   const beginnerPhrases = useMemo(() => buildPhrases(song, BEGINNER_MEASURES_PER_PHRASE), [song]);
@@ -321,6 +333,15 @@ export function PracticeView({ song, onExit, onFinish }: PracticeViewProps) {
     setFurthestPhraseIndex((f) => Math.max(f, phraseIndex));
   }, [phraseIndex]);
 
+  // Switching which hand is shown mid-attempt would leave the chord-index-driven judging
+  // state pointing at the wrong notes; restart the current phrase's attempt view instead
+  // (progress/totals are untouched — only the in-progress attempt resets).
+  useEffect(() => {
+    setAttemptKey((k) => k + 1);
+    setStage('intro');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [handFilter]);
+
   // Playback visuals: where in the song we are while auditioning a phrase (as opposed
   // to the chord-index-driven state during an attempt). Which keys are lit up is
   // derived from this below, once currentPhrase is available.
@@ -344,20 +365,25 @@ export function PracticeView({ song, onExit, onFinish }: PracticeViewProps) {
   );
 
   const currentPhrase = beginnerPhrases[phraseIndex];
-  const phraseChords = useMemo(() => groupNotesIntoChords(currentPhrase?.notes ?? []), [currentPhrase]);
+  const filteredPhraseNotes = useMemo(
+    () => filterByHand(currentPhrase?.notes ?? [], handFilter),
+    [currentPhrase, handFilter],
+  );
+  const phraseChords = useMemo(() => groupNotesIntoChords(filteredPhraseNotes), [filteredPhraseNotes]);
   const { lowMidi, highMidi } = useMemo(
-    () => computeKeyRange(currentPhrase?.notes ?? song.notes),
-    [currentPhrase, song.notes],
+    () => computeKeyRange(currentPhrase ? filteredPhraseNotes : song.notes),
+    [currentPhrase, filteredPhraseNotes, song.notes],
   );
   const { right: listenRight, left: listenLeft } = useMemo(
-    () => computeTouchingKeys(currentPhrase?.notes ?? [], playbackTime ?? currentPhrase?.startTime ?? 0),
-    [currentPhrase, playbackTime],
+    () => computeTouchingKeys(filteredPhraseNotes, playbackTime ?? currentPhrase?.startTime ?? 0),
+    [filteredPhraseNotes, currentPhrase, playbackTime],
   );
 
   const handleListen = useCallback(() => {
     if (!currentPhrase) return;
     stopPlaybackVisuals();
     const phrase = currentPhrase;
+    const notesToPlay = filterByHand(phrase.notes, handFilter);
     const startWallTime = performance.now() + PLAYBACK_START_DELAY_SECONDS * 1000;
     setPlaybackTime(phrase.startTime);
 
@@ -373,14 +399,14 @@ export function PracticeView({ song, onExit, onFinish }: PracticeViewProps) {
     };
     rafRef.current = requestAnimationFrame(tick);
 
-    void playNotes(phrase.notes, phrase.startTime).finally(() => {
+    void playNotes(notesToPlay, phrase.startTime).finally(() => {
       if (rafRef.current !== null) {
         cancelAnimationFrame(rafRef.current);
         rafRef.current = null;
       }
       setPlaybackTime(null);
     });
-  }, [currentPhrase, stopPlaybackVisuals]);
+  }, [currentPhrase, handFilter, stopPlaybackVisuals]);
 
   const handleStartAttempt = () => {
     stopPlayback();
@@ -476,6 +502,14 @@ export function PracticeView({ song, onExit, onFinish }: PracticeViewProps) {
     setAdvFurthest((f) => Math.max(f, advPhraseIndex));
   }, [advPhraseIndex]);
 
+  // Same reasoning as the beginner mode effect above: restart the current segment's
+  // performance view (not progress) when the hand filter changes mid-attempt.
+  useEffect(() => {
+    setAdvAttemptKey((k) => k + 1);
+    setAdvStage('intro');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [handFilter]);
+
   // Longer/shorter phrase segments shift phrase boundaries entirely, so start over.
   useEffect(() => {
     setAdvPhraseIndex(0);
@@ -488,9 +522,13 @@ export function PracticeView({ song, onExit, onFinish }: PracticeViewProps) {
   }, [measuresPerPhrase, song.id]);
 
   const currentAdvPhrase = advancedPhrases[advPhraseIndex];
+  const filteredAdvPhraseNotes = useMemo(
+    () => filterByHand(currentAdvPhrase?.notes ?? [], handFilter),
+    [currentAdvPhrase, handFilter],
+  );
   const { lowMidi: advLowMidi, highMidi: advHighMidi } = useMemo(
-    () => computeKeyRange(currentAdvPhrase?.notes ?? song.notes),
-    [currentAdvPhrase, song.notes],
+    () => computeKeyRange(currentAdvPhrase ? filteredAdvPhraseNotes : song.notes),
+    [currentAdvPhrase, filteredAdvPhraseNotes, song.notes],
   );
 
   const handleAdvancedPerform = () => {
@@ -580,6 +618,18 @@ export function PracticeView({ song, onExit, onFinish }: PracticeViewProps) {
         </button>
         <button type="button" className={mode === 'advanced' ? 'active' : ''} onClick={() => handleSetMode('advanced')}>
           上級モード
+        </button>
+      </div>
+
+      <div className="mode-toggle">
+        <button type="button" className={handFilter === 'both' ? 'active' : ''} onClick={() => setHandFilter('both')}>
+          両手
+        </button>
+        <button type="button" className={handFilter === 'right' ? 'active' : ''} onClick={() => setHandFilter('right')}>
+          右手のみ
+        </button>
+        <button type="button" className={handFilter === 'left' ? 'active' : ''} onClick={() => setHandFilter('left')}>
+          左手のみ
         </button>
       </div>
 
@@ -675,7 +725,7 @@ export function PracticeView({ song, onExit, onFinish }: PracticeViewProps) {
                   <NoteWaterfall
                     lowMidi={lowMidi}
                     highMidi={highMidi}
-                    notes={currentPhrase.notes}
+                    notes={filteredPhraseNotes}
                     currentTime={playbackTime ?? currentPhrase.startTime}
                   />
                   <PianoKeyboard
@@ -808,7 +858,7 @@ export function PracticeView({ song, onExit, onFinish }: PracticeViewProps) {
               {advStage === 'perform' && (
                 <AdvancedPerform
                   key={advAttemptKey}
-                  notes={currentAdvPhrase.notes}
+                  notes={filteredAdvPhraseNotes}
                   startTime={currentAdvPhrase.startTime}
                   endTime={currentAdvPhrase.endTime}
                   lowMidi={advLowMidi}
