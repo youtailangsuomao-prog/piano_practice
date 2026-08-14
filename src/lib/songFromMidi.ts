@@ -14,21 +14,26 @@ function toNoteEvent(note: MidiNote, hand: 'left' | 'right'): NoteEvent {
 }
 
 /**
- * Guess which hand plays each note. Piano MIDI files are usually exported as two
- * tracks (treble/right hand, bass/left hand); when that structure is available we
- * use it, otherwise we fall back to splitting by pitch around the track's median note.
+ * Guess which hand plays each note. Piano MIDI files are often exported as exactly two
+ * tracks (treble/right hand, bass/left hand); when that structure is available we use
+ * it. Files with any other track count (a single track, or 3+ tracks split by
+ * instrument/voice rather than by hand) fall back to splitting every note by pitch
+ * around the overall median note — taking just "the single highest-average track" as
+ * the right hand breaks down badly once there are more than two tracks, since a small
+ * track of a few high ornamental notes can outrank the real melody track's average and
+ * dump the whole melody into "left".
  */
 function assignHands(noteTracks: { notes: MidiNote[] }[]): NoteEvent[] {
-  if (noteTracks.length >= 2) {
+  if (noteTracks.length === 2) {
     const withAvgPitch = noteTracks.map((track) => ({
       track,
       avgPitch: track.notes.reduce((sum, n) => sum + n.midi, 0) / track.notes.length,
     }));
     withAvgPitch.sort((a, b) => b.avgPitch - a.avgPitch);
-    const [rightTrack, ...leftTracks] = withAvgPitch;
+    const [rightTrack, leftTrack] = withAvgPitch;
     return [
       ...rightTrack.track.notes.map((n) => toNoteEvent(n, 'right')),
-      ...leftTracks.flatMap(({ track }) => track.notes.map((n) => toNoteEvent(n, 'left'))),
+      ...leftTrack.track.notes.map((n) => toNoteEvent(n, 'left')),
     ];
   }
 

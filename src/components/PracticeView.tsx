@@ -404,7 +404,6 @@ export function PracticeView({ song, onExit, onFinish }: PracticeViewProps) {
   };
 
   const handleSelectPhrase = (index: number) => {
-    if (index > furthestPhraseIndex) return;
     stopPlayback();
     stopPlaybackVisuals();
     setPhraseIndex(index);
@@ -589,16 +588,14 @@ export function PracticeView({ song, onExit, onFinish }: PracticeViewProps) {
           {beginnerPhrases.length > 1 && (
             <div className="phrase-list">
               {beginnerPhrases.map((_, i) => {
-                const locked = i > furthestPhraseIndex;
                 const done = i < furthestPhraseIndex || songFinished;
                 return (
                   <button
                     key={i}
                     type="button"
-                    className={`phrase-pill ${i === phraseIndex && !songFinished ? 'current' : ''} ${done ? 'done' : ''} ${locked ? 'locked' : ''}`}
-                    disabled={locked}
+                    className={`phrase-pill ${i === phraseIndex && !songFinished ? 'current' : ''} ${done ? 'done' : ''}`}
                     onClick={() => handleSelectPhrase(i)}
-                    title={locked ? 'まだ到達していません' : `フレーズ${i + 1}を練習する`}
+                    title={`フレーズ${i + 1}を練習する`}
                   >
                     {i + 1}
                   </button>
