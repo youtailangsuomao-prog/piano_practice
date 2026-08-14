@@ -2,7 +2,7 @@ import { useEffect, useMemo, useReducer, useRef, useState, useCallback } from 'r
 import { Song, PracticeAttempt, NoteEvent } from '../lib/types';
 import { Chord, groupNotesIntoChords } from '../lib/chords';
 import { buildPhrases } from '../lib/phrases';
-import { playNotes, stopPlayback, PlaybackNoteEvent, PLAYBACK_START_DELAY_SECONDS } from '../lib/synthPlayback';
+import { playNotes, stopPlayback, PLAYBACK_START_DELAY_SECONDS } from '../lib/synthPlayback';
 import { loadSongProgress, saveSongProgress, clearSongProgress } from '../lib/songProgressStorage';
 import { usePianoInput } from '../hooks/usePianoInput';
 import { PianoNoteListener } from '../lib/webMidiInput';
@@ -12,6 +12,10 @@ import { NoteWaterfall } from './NoteWaterfall';
 const BEGINNER_MEASURES_PER_PHRASE = 4;
 const ADVANCED_MEASURE_OPTIONS = [8, 16];
 const ADVANCED_HIT_TOLERANCE_SECONDS = 0.35;
+// How far ahead of a note's exact scheduled time the key lights up: as soon as the
+// falling bar reaches (or is about to reach) the top of the keyboard, not only once
+// the audio actually starts sounding.
+const KEY_LIGHT_LEAD_SECONDS = 0.15;
 
 /** Keyboard range covering just the given notes (±2 semitones), so the keyboard zooms
  * to whatever's actually being practiced right now instead of the whole song's range. */
@@ -22,6 +26,20 @@ function computeKeyRange(notes: NoteEvent[]): { lowMidi: number; highMidi: numbe
     lowMidi: Math.max(21, Math.min(...midis) - 2),
     highMidi: Math.min(108, Math.max(...midis) + 2),
   };
+}
+
+/** Which keys the falling notes are currently touching (or about to touch) at `currentTime`. */
+function computeTouchingKeys(notes: NoteEvent[], currentTime: number): { right: Set<number>; left: Set<number> } {
+  const right = new Set<number>();
+  const left = new Set<number>();
+  notes.forEach((note) => {
+    const hasReached = note.time - currentTime <= KEY_LIGHT_LEAD_SECONDS;
+    const stillSounding = note.time + Math.max(note.duration, 0.05) >= currentTime;
+    if (hasReached && stillSounding) {
+      (note.hand === 'left' ? left : right).add(note.midi);
+    }
+  });
+  return { right, left };
 }
 
 interface AttemptState {
@@ -157,8 +175,10 @@ interface AdvancedPerformProps {
  */
 function AdvancedPerform({ notes, startTime, endTime, lowMidi, highMidi, subscribe, onComplete }: AdvancedPerformProps) {
   const [playbackTime, setPlaybackTime] = useState(startTime);
-  const [playingRight, setPlayingRight] = useState<Set<number>>(new Set());
-  const [playingLeft, setPlayingLeft] = useState<Set<number>>(new Set());
+  const { right: playingRight, left: playingLeft } = useMemo(
+    () => computeTouchingKeys(notes, playbackTime),
+    [notes, playbackTime],
+  );
   const [hitFlash, setHitFlash] = useState<Set<number>>(new Set());
   const [missFlash, setMissFlash] = useState<Set<number>>(new Set());
   const [correct, setCorrect] = useState(0);
@@ -226,17 +246,7 @@ function AdvancedPerform({ notes, startTime, endTime, lowMidi, highMidi, subscri
     };
     rafRef.current = requestAnimationFrame(tick);
 
-    const handleNoteEvent = (event: PlaybackNoteEvent) => {
-      const setter = event.hand === 'left' ? setPlayingLeft : setPlayingRight;
-      setter((prev) => {
-        const next = new Set(prev);
-        if (event.on) next.add(event.midi);
-        else next.delete(event.midi);
-        return next;
-      });
-    };
-
-    void playNotes(notes, startTime, handleNoteEvent).finally(() => {
+    void playNotes(notes, startTime).finally(() => {
       if (rafRef.current !== null) {
         cancelAnimationFrame(rafRef.current);
         rafRef.current = null;
@@ -311,11 +321,10 @@ export function PracticeView({ song, onExit, onFinish }: PracticeViewProps) {
     setFurthestPhraseIndex((f) => Math.max(f, phraseIndex));
   }, [phraseIndex]);
 
-  // Playback visuals: which notes are currently sounding, and where in the song we are,
-  // while auditioning a phrase (as opposed to the chord-index-driven state during an attempt).
+  // Playback visuals: where in the song we are while auditioning a phrase (as opposed
+  // to the chord-index-driven state during an attempt). Which keys are lit up is
+  // derived from this below, once currentPhrase is available.
   const [playbackTime, setPlaybackTime] = useState<number | null>(null);
-  const [playingRight, setPlayingRight] = useState<Set<number>>(new Set());
-  const [playingLeft, setPlayingLeft] = useState<Set<number>>(new Set());
   const rafRef = useRef<number | null>(null);
 
   const stopPlaybackVisuals = useCallback(() => {
@@ -324,8 +333,6 @@ export function PracticeView({ song, onExit, onFinish }: PracticeViewProps) {
       rafRef.current = null;
     }
     setPlaybackTime(null);
-    setPlayingRight(new Set());
-    setPlayingLeft(new Set());
   }, []);
 
   useEffect(
@@ -341,6 +348,10 @@ export function PracticeView({ song, onExit, onFinish }: PracticeViewProps) {
   const { lowMidi, highMidi } = useMemo(
     () => computeKeyRange(currentPhrase?.notes ?? song.notes),
     [currentPhrase, song.notes],
+  );
+  const { right: listenRight, left: listenLeft } = useMemo(
+    () => computeTouchingKeys(currentPhrase?.notes ?? [], playbackTime ?? currentPhrase?.startTime ?? 0),
+    [currentPhrase, playbackTime],
   );
 
   const handleListen = useCallback(() => {
@@ -362,17 +373,7 @@ export function PracticeView({ song, onExit, onFinish }: PracticeViewProps) {
     };
     rafRef.current = requestAnimationFrame(tick);
 
-    const handleNoteEvent = (event: PlaybackNoteEvent) => {
-      const setter = event.hand === 'left' ? setPlayingLeft : setPlayingRight;
-      setter((prev) => {
-        const next = new Set(prev);
-        if (event.on) next.add(event.midi);
-        else next.delete(event.midi);
-        return next;
-      });
-    };
-
-    void playNotes(phrase.notes, phrase.startTime, handleNoteEvent).finally(() => {
+    void playNotes(phrase.notes, phrase.startTime).finally(() => {
       if (rafRef.current !== null) {
         cancelAnimationFrame(rafRef.current);
         rafRef.current = null;
@@ -418,6 +419,15 @@ export function PracticeView({ song, onExit, onFinish }: PracticeViewProps) {
     setPhraseIndex(index);
     setAttemptKey((k) => k + 1);
     setStage('intro');
+    setSongFinished(false);
+  };
+
+  const handleRestartFromBeginning = () => {
+    stopPlayback();
+    stopPlaybackVisuals();
+    setPhraseIndex(0);
+    setAttemptKey((k) => k + 1);
+    setStage('attempt');
     setSongFinished(false);
   };
 
@@ -600,7 +610,7 @@ export function PracticeView({ song, onExit, onFinish }: PracticeViewProps) {
 
           {beginnerPhrases.length > 1 && (
             <div className="phrase-list">
-              <button type="button" onClick={() => handleSelectPhrase(0)} title="フレーズ1に戻ってやり直す">
+              <button type="button" onClick={handleRestartFromBeginning} title="フレーズ1の演奏からやり直す">
                 ⏮ 最初からやり直す
               </button>
               {beginnerPhrases.map((_, i) => {
@@ -671,8 +681,8 @@ export function PracticeView({ song, onExit, onFinish }: PracticeViewProps) {
                   <PianoKeyboard
                     lowMidi={lowMidi}
                     highMidi={highMidi}
-                    expectedRight={playingRight}
-                    expectedLeft={playingLeft}
+                    expectedRight={listenRight}
+                    expectedLeft={listenLeft}
                   />
                 </>
               )}
