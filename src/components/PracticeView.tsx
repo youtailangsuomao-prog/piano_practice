@@ -2,7 +2,7 @@ import { useEffect, useMemo, useReducer, useRef, useState, useCallback } from 'r
 import { Song, PracticeAttempt, NoteEvent } from '../lib/types';
 import { Chord, groupNotesIntoChords } from '../lib/chords';
 import { buildPhrases } from '../lib/phrases';
-import { playNotes, stopPlayback, PlaybackNoteEvent } from '../lib/synthPlayback';
+import { playNotes, stopPlayback, PlaybackNoteEvent, PLAYBACK_START_DELAY_SECONDS } from '../lib/synthPlayback';
 import { loadSongProgress, saveSongProgress, clearSongProgress } from '../lib/songProgressStorage';
 import { usePianoInput } from '../hooks/usePianoInput';
 import { PianoNoteListener } from '../lib/webMidiInput';
@@ -125,7 +125,7 @@ function PhraseAttempt({ chords, lowMidi, highMidi, subscribe, onComplete }: Phr
   return (
     <>
       <div className="stats">この区間: 正解 {state.correct} / ミス {state.wrong}</div>
-      <NoteWaterfall lowMidi={lowMidi} highMidi={highMidi} notes={allNotes} currentTime={currentTime} />
+      <NoteWaterfall lowMidi={lowMidi} highMidi={highMidi} notes={allNotes} currentTime={currentTime} animated />
       <PianoKeyboard
         lowMidi={lowMidi}
         highMidi={highMidi}
@@ -208,7 +208,10 @@ function AdvancedPerform({ notes, startTime, endTime, lowMidi, highMidi, subscri
   }, [subscribe, handleUserNoteOn]);
 
   useEffect(() => {
-    const startWallTime = performance.now();
+    // playNotes() always adds this much pre-roll before the first note actually
+    // sounds; start the visual clock offset by the same amount so it doesn't run
+    // ahead of the audio.
+    const startWallTime = performance.now() + PLAYBACK_START_DELAY_SECONDS * 1000;
 
     const tick = () => {
       const elapsed = (performance.now() - startWallTime) / 1000;
@@ -344,7 +347,7 @@ export function PracticeView({ song, onExit, onFinish }: PracticeViewProps) {
     if (!currentPhrase) return;
     stopPlaybackVisuals();
     const phrase = currentPhrase;
-    const startWallTime = performance.now();
+    const startWallTime = performance.now() + PLAYBACK_START_DELAY_SECONDS * 1000;
     setPlaybackTime(phrase.startTime);
 
     const tick = () => {
@@ -597,6 +600,9 @@ export function PracticeView({ song, onExit, onFinish }: PracticeViewProps) {
 
           {beginnerPhrases.length > 1 && (
             <div className="phrase-list">
+              <button type="button" onClick={() => handleSelectPhrase(0)} title="フレーズ1に戻ってやり直す">
+                ⏮ 最初からやり直す
+              </button>
               {beginnerPhrases.map((_, i) => {
                 const done = i < furthestPhraseIndex || songFinished;
                 return (

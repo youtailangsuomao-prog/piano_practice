@@ -12,9 +12,17 @@ export interface NoteWaterfallProps {
   notes: NoteEvent[];
   /** The time (in the song's original timeline) of the note the player must play right now. */
   currentTime: number;
+  /**
+   * Whether position changes should ease with a CSS transition. Turn this off when
+   * `currentTime` already updates continuously (a real-time clock, many times a
+   * second) — transitioning every one of those tiny steps makes the notes visibly lag
+   * behind their true position. Leave it on for discrete jumps (e.g. advancing once
+   * per chord), where the animated fall is the point. Defaults to off.
+   */
+  animated?: boolean;
 }
 
-export function NoteWaterfall({ lowMidi, highMidi, notes, currentTime }: NoteWaterfallProps) {
+export function NoteWaterfall({ lowMidi, highMidi, notes, currentTime, animated = false }: NoteWaterfallProps) {
   const { width: totalWidth } = layoutKeys(lowMidi, highMidi);
   const viewportHeight = LOOKAHEAD_SECONDS * PIXELS_PER_SECOND;
 
@@ -31,7 +39,10 @@ export function NoteWaterfall({ lowMidi, highMidi, notes, currentTime }: NoteWat
 
   return (
     <div className="note-waterfall" style={{ height: viewportHeight }}>
-      <div className="note-waterfall-track" style={{ transform: `translateY(${trackOffset}px)` }}>
+      <div
+        className="note-waterfall-track"
+        style={{ transform: `translateY(${trackOffset}px)`, transition: animated ? undefined : 'none' }}
+      >
         {visibleNotes.map((note, i) => {
           const { x, width: keyWidth } = keyPosition(note.midi, lowMidi, highMidi);
           const isNow = note.time <= currentTime + 0.01;

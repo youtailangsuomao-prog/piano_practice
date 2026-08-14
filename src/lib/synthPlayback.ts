@@ -58,6 +58,12 @@ export interface PlaybackNoteEvent {
   on: boolean;
 }
 
+/** Seconds of pre-roll playNotes() always schedules before the first note actually
+ * sounds. Exported so callers driving a visual clock in parallel (e.g. the falling
+ * notes) can offset their own start reference to match, instead of drifting ahead of
+ * the audio by this amount. */
+export const PLAYBACK_START_DELAY_SECONDS = 0.05;
+
 let activeOscillators: OscillatorNode[] = [];
 let activeTimers: ReturnType<typeof setTimeout>[] = [];
 
@@ -146,7 +152,7 @@ export async function playNotes(
   if (ctx.state !== 'running') {
     await ctx.resume();
   }
-  const startDelay = 0.05;
+  const startDelay = PLAYBACK_START_DELAY_SECONDS;
   const now = ctx.currentTime + startDelay;
   let latestEnd = 0;
 
