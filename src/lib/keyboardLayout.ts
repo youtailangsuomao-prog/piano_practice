@@ -2,8 +2,8 @@ const WHITE_PITCH_CLASSES = new Set([0, 2, 4, 5, 7, 9, 11]);
 
 export const WHITE_KEY_WIDTH = 32;
 export const BLACK_KEY_WIDTH = 20;
-export const WHITE_KEY_HEIGHT = 200;
-export const BLACK_KEY_HEIGHT = 126;
+export const WHITE_KEY_HEIGHT = 260;
+export const BLACK_KEY_HEIGHT = 164;
 
 export function isWhiteKey(midi: number): boolean {
   return WHITE_PITCH_CLASSES.has(((midi % 12) + 12) % 12);

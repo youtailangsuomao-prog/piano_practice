@@ -16,6 +16,11 @@ const ADVANCED_HIT_TOLERANCE_SECONDS = 0.35;
 // falling bar reaches (or is about to reach) the top of the keyboard, not only once
 // the audio actually starts sounding.
 const KEY_LIGHT_LEAD_SECONDS = 0.15;
+// How long a key's "just attacked" pulse lasts once a note reaches it. Kept separate
+// from the steady "expected" highlight so that two notes of the same pitch played back
+// to back each get their own visible flash, instead of the key just staying lit
+// continuously across the boundary between them.
+const KEY_ATTACK_FLASH_SECONDS = 0.12;
 
 /** Keyboard range covering just the given notes (±2 semitones), so the keyboard zooms
  * to whatever's actually being practiced right now instead of the whole song's range. */
@@ -37,18 +42,29 @@ function filterByHand(notes: NoteEvent[], filter: HandFilter): NoteEvent[] {
   return notes.filter((n) => n.hand === filter);
 }
 
-/** Which keys the falling notes are currently touching (or about to touch) at `currentTime`. */
-function computeTouchingKeys(notes: NoteEvent[], currentTime: number): { right: Set<number>; left: Set<number> } {
+/** Which keys the falling notes are currently touching (or about to touch) at `currentTime`,
+ * plus which keys just started being touched in the last KEY_ATTACK_FLASH_SECONDS — so a
+ * repeated note on the same pitch gets its own brief flash instead of the key merely
+ * staying lit across the boundary between the two notes. */
+function computeTouchingKeys(
+  notes: NoteEvent[],
+  currentTime: number,
+): { right: Set<number>; left: Set<number>; attack: Set<number> } {
   const right = new Set<number>();
   const left = new Set<number>();
+  const attack = new Set<number>();
   notes.forEach((note) => {
-    const hasReached = note.time - currentTime <= KEY_LIGHT_LEAD_SECONDS;
+    const sinceReached = currentTime - (note.time - KEY_LIGHT_LEAD_SECONDS);
+    const hasReached = sinceReached >= 0;
     const stillSounding = note.time + Math.max(note.duration, 0.05) >= currentTime;
     if (hasReached && stillSounding) {
       (note.hand === 'left' ? left : right).add(note.midi);
     }
+    if (hasReached && sinceReached <= KEY_ATTACK_FLASH_SECONDS) {
+      attack.add(note.midi);
+    }
   });
-  return { right, left };
+  return { right, left, attack };
 }
 
 interface AttemptState {
@@ -57,13 +73,22 @@ interface AttemptState {
   correct: number;
   wrong: number;
   wrongFlash: Set<number>;
+  attackFlash: Set<number>;
   finished: boolean;
 }
 
-type Action = { type: 'note-on'; midi: number } | { type: 'clear-wrong-flash' };
+type Action = { type: 'note-on'; midi: number } | { type: 'clear-wrong-flash' } | { type: 'clear-attack-flash' };
 
-function makeInitialState(): AttemptState {
-  return { chordIndex: 0, pressed: new Set(), correct: 0, wrong: 0, wrongFlash: new Set(), finished: false };
+function makeInitialState(chords: Chord[]): AttemptState {
+  return {
+    chordIndex: 0,
+    pressed: new Set(),
+    correct: 0,
+    wrong: 0,
+    wrongFlash: new Set(),
+    attackFlash: new Set((chords[0]?.notes ?? []).map((n) => n.midi)),
+    finished: false,
+  };
 }
 
 function makeReducer(chords: Chord[]) {
@@ -71,6 +96,8 @@ function makeReducer(chords: Chord[]) {
     switch (action.type) {
       case 'clear-wrong-flash':
         return { ...state, wrongFlash: new Set() };
+      case 'clear-attack-flash':
+        return { ...state, attackFlash: new Set() };
       case 'note-on': {
         if (state.finished) return state;
         const chord = chords[state.chordIndex];
@@ -84,6 +111,7 @@ function makeReducer(chords: Chord[]) {
           const correct = state.correct + 1;
           if (pressed.size === expected.size) {
             const chordIndex = state.chordIndex + 1;
+            const nextChord = chords[chordIndex];
             return {
               ...state,
               chordIndex,
@@ -91,6 +119,9 @@ function makeReducer(chords: Chord[]) {
               correct,
               finished: chordIndex >= chords.length,
               wrongFlash: new Set(),
+              // The next chord's notes get their own flash even if some of them were
+              // already lit as part of this chord (a repeated same-pitch note).
+              attackFlash: new Set((nextChord?.notes ?? []).map((n) => n.midi)),
             };
           }
           return { ...state, pressed, correct };
@@ -115,7 +146,7 @@ interface PhraseAttemptProps {
 /** Beginner mode: waits at each chord until it's played correctly before advancing. */
 function PhraseAttempt({ chords, lowMidi, highMidi, subscribe, onComplete }: PhraseAttemptProps) {
   const reducer = useMemo(() => makeReducer(chords), [chords]);
-  const [state, dispatch] = useReducer(reducer, undefined, makeInitialState);
+  const [state, dispatch] = useReducer(reducer, chords, makeInitialState);
   const reportedRef = useRef(false);
 
   useEffect(() => {
@@ -129,6 +160,12 @@ function PhraseAttempt({ chords, lowMidi, highMidi, subscribe, onComplete }: Phr
     const timer = setTimeout(() => dispatch({ type: 'clear-wrong-flash' }), 350);
     return () => clearTimeout(timer);
   }, [state.wrongFlash]);
+
+  useEffect(() => {
+    if (state.attackFlash.size === 0) return;
+    const timer = setTimeout(() => dispatch({ type: 'clear-attack-flash' }), 220);
+    return () => clearTimeout(timer);
+  }, [state.attackFlash]);
 
   useEffect(() => {
     if (state.finished && !reportedRef.current) {
@@ -160,6 +197,7 @@ function PhraseAttempt({ chords, lowMidi, highMidi, subscribe, onComplete }: Phr
         expectedLeft={expectedLeft}
         correct={state.pressed}
         wrong={state.wrongFlash}
+        attack={state.attackFlash}
         onKeyPress={(midi) => dispatch({ type: 'note-on', midi })}
       />
     </>
@@ -184,7 +222,7 @@ interface AdvancedPerformProps {
  */
 function AdvancedPerform({ notes, startTime, endTime, lowMidi, highMidi, subscribe, onComplete }: AdvancedPerformProps) {
   const [playbackTime, setPlaybackTime] = useState(startTime);
-  const { right: playingRight, left: playingLeft } = useMemo(
+  const { right: playingRight, left: playingLeft, attack: playingAttack } = useMemo(
     () => computeTouchingKeys(notes, playbackTime),
     [notes, playbackTime],
   );
@@ -286,6 +324,7 @@ function AdvancedPerform({ notes, startTime, endTime, lowMidi, highMidi, subscri
         expectedLeft={playingLeft}
         correct={hitFlash}
         wrong={missFlash}
+        attack={playingAttack}
         onKeyPress={handleUserNoteOn}
       />
     </>
@@ -374,7 +413,7 @@ export function PracticeView({ song, onExit, onFinish }: PracticeViewProps) {
     () => computeKeyRange(currentPhrase ? filteredPhraseNotes : song.notes),
     [currentPhrase, filteredPhraseNotes, song.notes],
   );
-  const { right: listenRight, left: listenLeft } = useMemo(
+  const { right: listenRight, left: listenLeft, attack: listenAttack } = useMemo(
     () => computeTouchingKeys(filteredPhraseNotes, playbackTime ?? currentPhrase?.startTime ?? 0),
     [filteredPhraseNotes, currentPhrase, playbackTime],
   );
@@ -719,6 +758,7 @@ export function PracticeView({ song, onExit, onFinish }: PracticeViewProps) {
                     highMidi={highMidi}
                     expectedRight={listenRight}
                     expectedLeft={listenLeft}
+                    attack={listenAttack}
                   />
                 </>
               )}

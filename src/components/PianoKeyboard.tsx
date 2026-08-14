@@ -7,6 +7,10 @@ export interface PianoKeyboardProps {
   expectedLeft?: ReadonlySet<number>;
   correct?: ReadonlySet<number>;
   wrong?: ReadonlySet<number>;
+  /** Keys that just started being expected (a note attack), for a brief flash on top of
+   * whatever steady color is showing — so a repeated note on the same pitch is visibly
+   * distinct from the key simply staying lit across the boundary between two notes. */
+  attack?: ReadonlySet<number>;
   onKeyPress?: (midi: number) => void;
 }
 
@@ -17,6 +21,7 @@ export function PianoKeyboard({
   expectedLeft,
   correct,
   wrong,
+  attack,
   onKeyPress,
 }: PianoKeyboardProps) {
   const { keys, width: totalWidth } = layoutKeys(lowMidi, highMidi);
@@ -30,6 +35,7 @@ export function PianoKeyboard({
     else if (wrong?.has(midi)) classes.push('key-wrong');
     else if (expectedRight?.has(midi)) classes.push('key-expected-right');
     else if (expectedLeft?.has(midi)) classes.push('key-expected-left');
+    if (attack?.has(midi)) classes.push('key-attack');
     return classes.join(' ');
   };
 
