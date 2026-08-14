@@ -1,6 +1,6 @@
 import { Midi } from '@tonejs/midi';
 import { NoteEvent, Song } from './types';
-import { assignHandsByChord } from './hands';
+import { assignHandsByChord, assignHandsByTrackOrder, isCleanTwoHandSplit } from './hands';
 
 interface MidiNote {
   midi: number;
@@ -23,7 +23,16 @@ export async function songFromMidiFile(file: File): Promise<Song> {
     .filter((track) => track.channel !== 9 && track.notes.length > 0);
 
   const allNotes = noteTracks.flatMap((track) => track.notes);
-  const handByNote = assignHandsByChord(allNotes);
+
+  // MIDI has no dedicated "hand" field, but a piano part exported from notation
+  // software as two staves often comes out as exactly two tracks that are genuinely
+  // register-separated. When that's verifiably true, trust it as real ground truth;
+  // otherwise fall back to guessing per chord.
+  const handByNote =
+    noteTracks.length === 2 && isCleanTwoHandSplit(noteTracks[0].notes, noteTracks[1].notes)
+      ? assignHandsByTrackOrder(noteTracks[0].notes, noteTracks[1].notes)
+      : assignHandsByChord(allNotes);
+
   const notes = allNotes
     .map((n) => toNoteEvent(n, handByNote.get(n) ?? 'right'))
     .sort((a, b) => a.time - b.time);

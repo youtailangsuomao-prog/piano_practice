@@ -76,3 +76,54 @@ export function assignHandsByChord<T extends HandAssignable>(notes: T[]): Map<T,
 
   return hands;
 }
+
+/**
+ * MIDI itself has no dedicated "hand" field — only note/time/track data. But a piano
+ * part exported from notation software (as two staves: treble/right hand, bass/left
+ * hand) often comes out as exactly two tracks that are genuinely, consistently split
+ * by register. When that's true, the track assignment is real ground truth and is more
+ * reliable than any per-chord guess (it correctly keeps e.g. a same-hand melodic run
+ * together even when it dips into the other hand's usual register). This checks
+ * whether two tracks actually look like that: at every moment both play together, is
+ * the "higher" track's note actually higher than the "lower" track's note?
+ */
+export function isCleanTwoHandSplit<T extends HandAssignable>(trackA: T[], trackB: T[]): boolean {
+  if (trackA.length === 0 || trackB.length === 0) return true;
+  const higherIsA = average(trackA.map((n) => n.midi)) >= average(trackB.map((n) => n.midi));
+  const higherTrack = higherIsA ? trackA : trackB;
+  const lowerTrack = higherIsA ? trackB : trackA;
+
+  const combined = [
+    ...higherTrack.map((n) => ({ midi: n.midi, time: n.time, side: 'higher' as const })),
+    ...lowerTrack.map((n) => ({ midi: n.midi, time: n.time, side: 'lower' as const })),
+  ].sort((a, b) => a.time - b.time);
+
+  let comparableMoments = 0;
+  let crossings = 0;
+  let i = 0;
+  while (i < combined.length) {
+    let j = i + 1;
+    while (j < combined.length && combined[j].time - combined[i].time <= CHORD_TIME_TOLERANCE) j++;
+    const group = combined.slice(i, j);
+    const highs = group.filter((n) => n.side === 'higher').map((n) => n.midi);
+    const lows = group.filter((n) => n.side === 'lower').map((n) => n.midi);
+    if (highs.length > 0 && lows.length > 0) {
+      comparableMoments += 1;
+      if (Math.min(...highs) < Math.max(...lows)) crossings += 1;
+    }
+    i = j;
+  }
+
+  if (comparableMoments === 0) return true;
+  return crossings / comparableMoments <= 0.15;
+}
+
+/** Assign every note in one track to the right hand and the other to the left hand. */
+export function assignHandsByTrackOrder<T extends HandAssignable>(trackA: T[], trackB: T[]): Map<T, 'left' | 'right'> {
+  const higherIsA = average(trackA.map((n) => n.midi)) >= average(trackB.map((n) => n.midi));
+  const [rightTrack, leftTrack] = higherIsA ? [trackA, trackB] : [trackB, trackA];
+  const hands = new Map<T, 'left' | 'right'>();
+  rightTrack.forEach((note) => hands.set(note, 'right'));
+  leftTrack.forEach((note) => hands.set(note, 'left'));
+  return hands;
+}
