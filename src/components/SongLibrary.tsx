@@ -2,6 +2,13 @@ import { ChangeEvent, useRef, useState } from 'react';
 import { Song } from '../lib/types';
 import { songFromMidiFile } from '../lib/songFromMidi';
 import { songFromAudioFile } from '../lib/audioToSong';
+import { songFromMusicXmlFile } from '../lib/songFromMusicXml';
+
+const SOURCE_LABELS: Record<Song['source'], string> = {
+  'midi-import': 'MIDI',
+  'audio-transcription': '自動変換',
+  'musicxml-import': '楽譜XML',
+};
 
 interface SongLibraryProps {
   songs: Song[];
@@ -16,6 +23,7 @@ export function SongLibrary({ songs, onAddSong, onDeleteSong, onSelectSong }: So
   const [error, setError] = useState<string | null>(null);
   const midiInputRef = useRef<HTMLInputElement>(null);
   const audioInputRef = useRef<HTMLInputElement>(null);
+  const musicXmlInputRef = useRef<HTMLInputElement>(null);
 
   const handleMidiFile = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -25,6 +33,22 @@ export function SongLibrary({ songs, onAddSong, onDeleteSong, onSelectSong }: So
     setBusy('MIDIファイルを読み込み中...');
     try {
       const song = await songFromMidiFile(file);
+      onAddSong(song);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const handleMusicXmlFile = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    setError(null);
+    setBusy('MusicXMLファイルを読み込み中...');
+    try {
+      const song = await songFromMusicXmlFile(file);
       onAddSong(song);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -76,6 +100,17 @@ export function SongLibrary({ songs, onAddSong, onDeleteSong, onSelectSong }: So
           onChange={handleAudioFile}
           hidden
         />
+
+        <button type="button" onClick={() => musicXmlInputRef.current?.click()} disabled={!!busy}>
+          MusicXMLを取り込む
+        </button>
+        <input
+          ref={musicXmlInputRef}
+          type="file"
+          accept=".xml,.musicxml,.mxl"
+          onChange={handleMusicXmlFile}
+          hidden
+        />
       </div>
 
       {busy && (
@@ -93,8 +128,7 @@ export function SongLibrary({ songs, onAddSong, onDeleteSong, onSelectSong }: So
             <button type="button" className="song-select" onClick={() => onSelectSong(song.id)}>
               <span className="song-name">{song.name}</span>
               <span className="song-meta">
-                {song.source === 'midi-import' ? 'MIDI' : '自動変換'} ・{' '}
-                {Math.round(song.durationSeconds)}秒 ・ {song.notes.length}音
+                {SOURCE_LABELS[song.source]} ・ {Math.round(song.durationSeconds)}秒 ・ {song.notes.length}音
               </span>
             </button>
             <button type="button" className="song-delete" onClick={() => onDeleteSong(song.id)} aria-label="削除">
