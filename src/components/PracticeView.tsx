@@ -688,28 +688,14 @@ export function PracticeView({ song, onExit, onFinish }: PracticeViewProps) {
 
               <div className="hand-legend">
                 <span>
-                  <span className="hand-swatch right" />
-                  右手
-                </span>
-                <span>
                   <span className="hand-swatch left" />
                   左手
                 </span>
+                <span>
+                  <span className="hand-swatch right" />
+                  右手
+                </span>
               </div>
-
-              {stage === 'intro' && (
-                <div className="phrase-intro">
-                  <p>お手本を聴いてから弾いてみましょう。</p>
-                  <div className="phrase-actions">
-                    <button type="button" onClick={handleListen}>
-                      ▶ お手本を聴く
-                    </button>
-                    <button type="button" onClick={handleStartAttempt}>
-                      🎹 弾いてみる
-                    </button>
-                  </div>
-                </div>
-              )}
 
               {stage === 'attempt' ? (
                 <PhraseAttempt
@@ -735,6 +721,20 @@ export function PracticeView({ song, onExit, onFinish }: PracticeViewProps) {
                     expectedLeft={listenLeft}
                   />
                 </>
+              )}
+
+              {stage === 'intro' && (
+                <div className="phrase-intro">
+                  <p>お手本を聴いてから弾いてみましょう。</p>
+                  <div className="phrase-actions">
+                    <button type="button" onClick={handleListen}>
+                      ▶ お手本を聴く
+                    </button>
+                    <button type="button" onClick={handleStartAttempt}>
+                      🎹 弾いてみる
+                    </button>
+                  </div>
+                </div>
               )}
 
               {stage === 'result' && lastResult && (
@@ -835,12 +835,12 @@ export function PracticeView({ song, onExit, onFinish }: PracticeViewProps) {
 
               <div className="hand-legend">
                 <span>
-                  <span className="hand-swatch right" />
-                  右手
-                </span>
-                <span>
                   <span className="hand-swatch left" />
                   左手
+                </span>
+                <span>
+                  <span className="hand-swatch right" />
+                  右手
                 </span>
               </div>
 
