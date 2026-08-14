@@ -386,8 +386,16 @@ export function PracticeView({ song, onExit, onFinish }: PracticeViewProps) {
   // derived from this below, once currentPhrase is available.
   const [playbackTime, setPlaybackTime] = useState<number | null>(null);
   const rafRef = useRef<number | null>(null);
+  // Bumped every time playback visuals are (re)started or stopped. playNotes()'s
+  // returned promise resolves on its own setTimeout that nothing can cancel, so if
+  // "お手本を聴く" is clicked again (or any other action moves on) before the previous
+  // call's promise settles, its .finally() would otherwise fire later and wipe out the
+  // newer playback's state — this token lets that stale callback recognize it's been
+  // superseded and become a no-op instead.
+  const playbackTokenRef = useRef(0);
 
   const stopPlaybackVisuals = useCallback(() => {
+    playbackTokenRef.current += 1;
     if (rafRef.current !== null) {
       cancelAnimationFrame(rafRef.current);
       rafRef.current = null;
@@ -421,6 +429,7 @@ export function PracticeView({ song, onExit, onFinish }: PracticeViewProps) {
   const handleListen = useCallback(() => {
     if (!currentPhrase) return;
     stopPlaybackVisuals();
+    const token = playbackTokenRef.current;
     const phrase = currentPhrase;
     const notesToPlay = filterByHand(phrase.notes, handFilter);
     const startWallTime = performance.now() + PLAYBACK_START_DELAY_SECONDS * 1000;
@@ -439,6 +448,7 @@ export function PracticeView({ song, onExit, onFinish }: PracticeViewProps) {
     rafRef.current = requestAnimationFrame(tick);
 
     void playNotes(notesToPlay, phrase.startTime).finally(() => {
+      if (playbackTokenRef.current !== token) return;
       if (rafRef.current !== null) {
         cancelAnimationFrame(rafRef.current);
         rafRef.current = null;
