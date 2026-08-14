@@ -13,6 +13,17 @@ const BEGINNER_MEASURES_PER_PHRASE = 4;
 const ADVANCED_MEASURE_OPTIONS = [8, 16];
 const ADVANCED_HIT_TOLERANCE_SECONDS = 0.35;
 
+/** Keyboard range covering just the given notes (±2 semitones), so the keyboard zooms
+ * to whatever's actually being practiced right now instead of the whole song's range. */
+function computeKeyRange(notes: NoteEvent[]): { lowMidi: number; highMidi: number } {
+  if (notes.length === 0) return { lowMidi: 60, highMidi: 72 };
+  const midis = notes.map((n) => n.midi);
+  return {
+    lowMidi: Math.max(21, Math.min(...midis) - 2),
+    highMidi: Math.min(108, Math.max(...midis) + 2),
+  };
+}
+
 interface AttemptState {
   chordIndex: number;
   pressed: Set<number>;
@@ -273,15 +284,6 @@ export function PracticeView({ song, onExit, onFinish }: PracticeViewProps) {
   const pianoInput = usePianoInput();
   const [mode, setModeState] = useState<Mode>('beginner');
 
-  const { lowMidi, highMidi } = useMemo(() => {
-    if (song.notes.length === 0) return { lowMidi: 60, highMidi: 72 };
-    const midis = song.notes.map((n) => n.midi);
-    return {
-      lowMidi: Math.max(21, Math.min(...midis) - 2),
-      highMidi: Math.min(108, Math.max(...midis) + 2),
-    };
-  }, [song]);
-
   // ---- Beginner mode state ----
   const beginnerPhrases = useMemo(() => buildPhrases(song, BEGINNER_MEASURES_PER_PHRASE), [song]);
   const savedProgress = useMemo(() => loadSongProgress(song.id), [song.id]);
@@ -333,6 +335,10 @@ export function PracticeView({ song, onExit, onFinish }: PracticeViewProps) {
 
   const currentPhrase = beginnerPhrases[phraseIndex];
   const phraseChords = useMemo(() => groupNotesIntoChords(currentPhrase?.notes ?? []), [currentPhrase]);
+  const { lowMidi, highMidi } = useMemo(
+    () => computeKeyRange(currentPhrase?.notes ?? song.notes),
+    [currentPhrase, song.notes],
+  );
 
   const handleListen = useCallback(() => {
     if (!currentPhrase) return;
@@ -469,6 +475,10 @@ export function PracticeView({ song, onExit, onFinish }: PracticeViewProps) {
   }, [measuresPerPhrase, song.id]);
 
   const currentAdvPhrase = advancedPhrases[advPhraseIndex];
+  const { lowMidi: advLowMidi, highMidi: advHighMidi } = useMemo(
+    () => computeKeyRange(currentAdvPhrase?.notes ?? song.notes),
+    [currentAdvPhrase, song.notes],
+  );
 
   const handleAdvancedPerform = () => {
     stopPlayback();
@@ -785,8 +795,8 @@ export function PracticeView({ song, onExit, onFinish }: PracticeViewProps) {
                   notes={currentAdvPhrase.notes}
                   startTime={currentAdvPhrase.startTime}
                   endTime={currentAdvPhrase.endTime}
-                  lowMidi={lowMidi}
-                  highMidi={highMidi}
+                  lowMidi={advLowMidi}
+                  highMidi={advHighMidi}
                   subscribe={pianoInput.subscribe}
                   onComplete={handleAdvancedComplete}
                 />

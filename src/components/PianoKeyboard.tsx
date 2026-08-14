@@ -19,9 +19,10 @@ export function PianoKeyboard({
   wrong,
   onKeyPress,
 }: PianoKeyboardProps) {
-  const { keys, width } = layoutKeys(lowMidi, highMidi);
+  const { keys, width: totalWidth } = layoutKeys(lowMidi, highMidi);
   const whiteKeys = keys.filter((k) => k.isWhite);
   const blackKeys = keys.filter((k) => !k.isWhite);
+  const pct = (units: number) => `${(units / totalWidth) * 100}%`;
 
   const classFor = (midi: number, base: string) => {
     const classes = [base];
@@ -33,13 +34,13 @@ export function PianoKeyboard({
   };
 
   return (
-    <div className="piano-keyboard" style={{ width, height: WHITE_KEY_HEIGHT }}>
+    <div className="piano-keyboard" style={{ height: WHITE_KEY_HEIGHT }}>
       {whiteKeys.map((key) => (
         <button
           key={key.midi}
           type="button"
           className={classFor(key.midi, 'piano-key white-key')}
-          style={{ left: key.x, width: WHITE_KEY_WIDTH, height: WHITE_KEY_HEIGHT }}
+          style={{ left: pct(key.x), width: pct(WHITE_KEY_WIDTH), height: WHITE_KEY_HEIGHT }}
           onClick={() => onKeyPress?.(key.midi)}
           aria-label={`key-${key.midi}`}
         />
@@ -49,7 +50,7 @@ export function PianoKeyboard({
           key={key.midi}
           type="button"
           className={classFor(key.midi, 'piano-key black-key')}
-          style={{ left: key.x, width: BLACK_KEY_WIDTH, height: BLACK_KEY_HEIGHT }}
+          style={{ left: pct(key.x), width: pct(BLACK_KEY_WIDTH), height: BLACK_KEY_HEIGHT }}
           onClick={() => onKeyPress?.(key.midi)}
           aria-label={`key-${key.midi}`}
         />

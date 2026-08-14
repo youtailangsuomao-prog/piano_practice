@@ -15,7 +15,7 @@ export interface NoteWaterfallProps {
 }
 
 export function NoteWaterfall({ lowMidi, highMidi, notes, currentTime }: NoteWaterfallProps) {
-  const { width } = layoutKeys(lowMidi, highMidi);
+  const { width: totalWidth } = layoutKeys(lowMidi, highMidi);
   const viewportHeight = LOOKAHEAD_SECONDS * PIXELS_PER_SECOND;
 
   const visibleNotes = useMemo(
@@ -30,7 +30,7 @@ export function NoteWaterfall({ lowMidi, highMidi, notes, currentTime }: NoteWat
   const trackOffset = (LOOKAHEAD_SECONDS + currentTime) * PIXELS_PER_SECOND;
 
   return (
-    <div className="note-waterfall" style={{ width, height: viewportHeight }}>
+    <div className="note-waterfall" style={{ height: viewportHeight }}>
       <div className="note-waterfall-track" style={{ transform: `translateY(${trackOffset}px)` }}>
         {visibleNotes.map((note, i) => {
           const { x, width: keyWidth } = keyPosition(note.midi, lowMidi, highMidi);
@@ -42,8 +42,8 @@ export function NoteWaterfall({ lowMidi, highMidi, notes, currentTime }: NoteWat
                 isNow ? 'falling-note-now' : ''
               }`}
               style={{
-                left: x,
-                width: keyWidth,
+                left: `${(x / totalWidth) * 100}%`,
+                width: `${(keyWidth / totalWidth) * 100}%`,
                 top: -note.time * PIXELS_PER_SECOND,
                 height: Math.max(note.duration * PIXELS_PER_SECOND, MIN_NOTE_HEIGHT),
               }}
