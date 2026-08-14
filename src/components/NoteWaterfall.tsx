@@ -27,7 +27,7 @@ export function NoteWaterfall({ lowMidi, highMidi, notes, currentTime, animated 
   const viewportHeight = LOOKAHEAD_SECONDS * PIXELS_PER_SECOND;
 
   const visibleNotes = useMemo(
-    () => notes.filter((n) => n.time >= currentTime - 0.05 && n.time <= currentTime + LOOKAHEAD_SECONDS),
+    () => notes.filter((n) => n.time + n.duration >= currentTime - 0.05 && n.time <= currentTime + LOOKAHEAD_SECONDS),
     [notes, currentTime],
   );
 
@@ -46,6 +46,7 @@ export function NoteWaterfall({ lowMidi, highMidi, notes, currentTime, animated 
         {visibleNotes.map((note, i) => {
           const { x, width: keyWidth } = keyPosition(note.midi, lowMidi, highMidi);
           const isNow = note.time <= currentTime + 0.01;
+          const heightPx = Math.max(note.duration * PIXELS_PER_SECOND, MIN_NOTE_HEIGHT);
           return (
             <div
               key={`${note.midi}-${note.time}-${i}`}
@@ -55,8 +56,13 @@ export function NoteWaterfall({ lowMidi, highMidi, notes, currentTime, animated 
               style={{
                 left: `${(x / totalWidth) * 100}%`,
                 width: `${(keyWidth / totalWidth) * 100}%`,
-                top: -note.time * PIXELS_PER_SECOND,
-                height: Math.max(note.duration * PIXELS_PER_SECOND, MIN_NOTE_HEIGHT),
+                // The bar's bottom edge (its leading edge as it falls) must reach the
+                // hitline exactly at note.time, not note.time - duration: positioning by
+                // note.time alone (with height added downward) put the note's *end* at
+                // the hitline at note.time, making the bar appear to already be sinking
+                // into the keyboard by the time the key actually lights up.
+                top: -note.time * PIXELS_PER_SECOND - heightPx,
+                height: heightPx,
               }}
             />
           );
