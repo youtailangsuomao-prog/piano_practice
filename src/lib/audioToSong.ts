@@ -5,7 +5,7 @@ import {
   outputToNotesPoly,
 } from '@spotify/basic-pitch';
 import { NoteEvent, Song } from './types';
-import { medianPitch } from './hands';
+import { assignHandsByChord } from './hands';
 
 const MODEL_URL = `${import.meta.env.BASE_URL}basic-pitch-model/model.json`;
 const BASIC_PITCH_SAMPLE_RATE = 22050;
@@ -64,17 +64,15 @@ export async function songFromAudioFile(
     addPitchBendsToNoteEvents(contours, outputToNotesPoly(frames, onsets, 0.25, 0.25, 5)),
   );
 
-  const threshold = medianPitch(noteEvents.map((n) => n.pitchMidi));
-  const notes: NoteEvent[] = noteEvents
-    .map(
-      (n): NoteEvent => ({
-        midi: n.pitchMidi,
-        time: n.startTimeSeconds,
-        duration: n.durationSeconds,
-        velocity: n.amplitude,
-        hand: n.pitchMidi >= threshold ? 'right' : 'left',
-      }),
-    )
+  const rawNotes = noteEvents.map((n) => ({
+    midi: n.pitchMidi,
+    time: n.startTimeSeconds,
+    duration: n.durationSeconds,
+    velocity: n.amplitude,
+  }));
+  const handByNote = assignHandsByChord(rawNotes);
+  const notes: NoteEvent[] = rawNotes
+    .map((n): NoteEvent => ({ ...n, hand: handByNote.get(n) ?? 'right' }))
     .sort((a, b) => a.time - b.time);
 
   const durationSeconds = notes.reduce((max, n) => Math.max(max, n.time + n.duration), 0);
