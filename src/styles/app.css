@@ -140,6 +140,22 @@ h1 {
   transition: width 0.2s ease;
 }
 
+.mode-toggle,
+.measure-length-select {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.mode-toggle button.active,
+.measure-length-select button.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #08101f;
+  font-weight: 700;
+}
+
 .phrase-list {
   display: flex;
   flex-wrap: wrap;
