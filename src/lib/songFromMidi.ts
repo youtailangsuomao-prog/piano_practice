@@ -18,9 +18,19 @@ export async function songFromMidiFile(file: File): Promise<Song> {
   const arrayBuffer = await file.arrayBuffer();
   const midi = new Midi(arrayBuffer);
 
-  const noteTracks = midi.tracks
+  const nonDrumTracks = midi.tracks
     // Channel 9 (10 in 1-indexed MIDI) is the standard percussion channel; skip it.
     .filter((track) => track.channel !== 9 && track.notes.length > 0);
+
+  // Real-world MIDI files for popular songs are often full backing-band arrangements —
+  // drums, bass, guitar, strings, and so on — with the actual playable piano part buried
+  // among them, rather than a clean piano solo/duet export. When there are more tracks
+  // than a two-hand piece would have, prefer tracks tagged as Acoustic Grand Piano (GM
+  // program 0), almost always the real piano part, over the rest of the ensemble;
+  // otherwise every instrument gets thrown into one chord-splitting guess together,
+  // producing "hand" assignments with impossible simultaneous jumps across instruments.
+  const pianoProgramTracks = nonDrumTracks.filter((track) => track.instrument?.number === 0);
+  const noteTracks = nonDrumTracks.length > 2 && pianoProgramTracks.length > 0 ? pianoProgramTracks : nonDrumTracks;
 
   const allNotes = noteTracks.flatMap((track) => track.notes);
 
