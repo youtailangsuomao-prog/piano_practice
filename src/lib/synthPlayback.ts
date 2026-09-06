@@ -67,10 +67,21 @@ export const PLAYBACK_START_DELAY_SECONDS = 0.05;
 interface ActiveVoice {
   osc: OscillatorNode;
   gain: GainNode;
+  stopAt: number;
 }
 
 let activeVoices: ActiveVoice[] = [];
 let activeTimers: ReturnType<typeof setTimeout>[] = [];
+
+/** Drop voices that finished ringing out a while ago. Without this, a long streaming
+ * session (a whole-song playthrough) would keep every voice it ever scheduled
+ * referenced for the rest of playback — thousands of already-silent oscillators by the
+ * second half of a long song — which is enough retained audio-graph state to degrade
+ * or cut out the actually-playing voices even though each one is individually inert. */
+function pruneFinishedVoices(ctx: AudioContext) {
+  const now = ctx.currentTime;
+  activeVoices = activeVoices.filter((voice) => voice.stopAt > now);
+}
 
 /** How long stopPlayback() ramps a still-ringing voice's gain to silence before actually
  * stopping the oscillator. Cutting an oscillator off immediately (mid-waveform, at
@@ -147,8 +158,9 @@ function scheduleNote(ctx: AudioContext, note: NoteEvent, startAt: number, noteD
     osc.connect(gain);
     gain.connect(voiceOut);
     osc.start(startAt);
-    osc.stop(startAt + decayTime + 0.05);
-    activeVoices.push({ osc, gain });
+    const stopAt = startAt + decayTime + 0.05;
+    osc.stop(stopAt);
+    activeVoices.push({ osc, gain, stopAt });
   });
 }
 
@@ -228,6 +240,7 @@ export async function startStreamingPlayback(notes: NoteEvent[]): Promise<Stream
 
   return {
     scheduleAhead(songTime, aheadSeconds) {
+      pruneFinishedVoices(ctx);
       const horizon = songTime + aheadSeconds;
       while (nextIndex < sorted.length && sorted[nextIndex].time <= horizon) {
         const note = sorted[nextIndex];
