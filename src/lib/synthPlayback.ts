@@ -197,3 +197,45 @@ export async function playNotes(
     setTimeout(resolve, (latestEnd + startDelay + 0.1) * 1000);
   });
 }
+
+export interface StreamingPlayback {
+  /** Schedule any notes starting within `aheadSeconds` of `songTime` that haven't been
+   * scheduled yet. Call this repeatedly (e.g. once per animation frame) as playback
+   * advances — scheduling only a near-term window at a time, instead of the whole
+   * piece up front, keeps the number of live audio nodes bounded regardless of how
+   * long or dense the song is. */
+  scheduleAhead(songTime: number, aheadSeconds: number): void;
+}
+
+/**
+ * Like playNotes(), but for playing a long piece (a whole song, potentially many
+ * minutes and thousands of notes) without scheduling everything at once — a single
+ * upfront playNotes() call for that much material can mean tens of thousands of
+ * simultaneously-created audio nodes, which is enough to overwhelm the audio hardware
+ * and produce silence or severe glitching instead of sound. The caller drives
+ * scheduleAhead() off its own visual clock (the same one driving the falling notes),
+ * so audio scheduling naturally tracks playback position instead of front-loading it.
+ */
+export async function startStreamingPlayback(notes: NoteEvent[]): Promise<StreamingPlayback> {
+  stopPlayback();
+  const ctx = getAudioContext();
+  if (ctx.state !== 'running') {
+    await ctx.resume();
+  }
+  const sorted = [...notes].sort((a, b) => a.time - b.time);
+  const origin = ctx.currentTime + PLAYBACK_START_DELAY_SECONDS;
+  let nextIndex = 0;
+
+  return {
+    scheduleAhead(songTime, aheadSeconds) {
+      const horizon = songTime + aheadSeconds;
+      while (nextIndex < sorted.length && sorted[nextIndex].time <= horizon) {
+        const note = sorted[nextIndex];
+        const startAt = origin + note.time;
+        const duration = Math.max(note.duration, 0.15);
+        scheduleNote(ctx, note, startAt, duration);
+        nextIndex += 1;
+      }
+    },
+  };
+}

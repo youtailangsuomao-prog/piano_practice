@@ -2,7 +2,13 @@ import { useEffect, useMemo, useReducer, useRef, useState, useCallback } from 'r
 import { Song, PracticeAttempt, NoteEvent } from '../lib/types';
 import { Chord, groupNotesIntoChords } from '../lib/chords';
 import { buildPhrases } from '../lib/phrases';
-import { playNotes, stopPlayback, PLAYBACK_START_DELAY_SECONDS } from '../lib/synthPlayback';
+import {
+  playNotes,
+  stopPlayback,
+  startStreamingPlayback,
+  StreamingPlayback,
+  PLAYBACK_START_DELAY_SECONDS,
+} from '../lib/synthPlayback';
 import { loadSongProgress, saveSongProgress, clearSongProgress } from '../lib/songProgressStorage';
 import { usePianoInput } from '../hooks/usePianoInput';
 import { PianoNoteListener } from '../lib/webMidiInput';
@@ -16,6 +22,11 @@ const ADVANCED_HIT_TOLERANCE_SECONDS = 0.35;
 // falling bar reaches (or is about to reach) the top of the keyboard, not only once
 // the audio actually starts sounding.
 const KEY_LIGHT_LEAD_SECONDS = 0.15;
+// How far ahead of the current playback position the whole-song listen-through
+// schedules audio. Scheduling only a near-term window at a time (instead of the
+// entire piece up front) keeps the number of live audio nodes bounded no matter how
+// long or dense the song is.
+const WHOLE_SONG_SCHEDULE_AHEAD_SECONDS = 8;
 // How long a key's "just attacked" pulse lasts once a note reaches it. Kept separate
 // from the steady "expected" highlight so that two notes of the same pitch played back
 // to back each get their own visible flash, instead of the key just staying lit
@@ -385,26 +396,34 @@ export function PracticeView({ song, onExit, onFinish }: PracticeViewProps) {
     setWholeSongTime(0);
     const startWallTime = performance.now() + PLAYBACK_START_DELAY_SECONDS * 1000;
 
+    // A whole song can be many minutes and thousands of notes; scheduling it all at
+    // once (like playNotes() does for a single phrase) can mean tens of thousands of
+    // audio nodes created up front, enough to overwhelm the audio hardware and produce
+    // silence instead of sound. Stream it instead: the session only schedules a
+    // near-term window at a time, advanced every frame alongside the visual clock.
+    let session: StreamingPlayback | null = null;
+
     const tick = () => {
       if (wholeSongTokenRef.current !== token) return;
       const t = (performance.now() - startWallTime) / 1000;
       if (t >= song.durationSeconds) {
         wholeSongRafRef.current = null;
+        setWholeSongActive(false);
         return;
       }
       setWholeSongTime(t);
+      session?.scheduleAhead(t, WHOLE_SONG_SCHEDULE_AHEAD_SECONDS);
       wholeSongRafRef.current = requestAnimationFrame(tick);
     };
     wholeSongRafRef.current = requestAnimationFrame(tick);
 
-    void playNotes(filteredSongNotes, 0).finally(() => {
-      if (wholeSongTokenRef.current !== token) return;
-      if (wholeSongRafRef.current !== null) {
-        cancelAnimationFrame(wholeSongRafRef.current);
-        wholeSongRafRef.current = null;
+    void startStreamingPlayback(filteredSongNotes).then((s) => {
+      if (wholeSongTokenRef.current !== token) {
+        stopPlayback();
+        return;
       }
-      setWholeSongActive(false);
-      setWholeSongTime(0);
+      session = s;
+      session.scheduleAhead(0, WHOLE_SONG_SCHEDULE_AHEAD_SECONDS);
     });
   }, [filteredSongNotes, song.durationSeconds]);
 
