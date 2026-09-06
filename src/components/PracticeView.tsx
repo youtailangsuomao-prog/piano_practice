@@ -348,6 +348,73 @@ export function PracticeView({ song, onExit, onFinish }: PracticeViewProps) {
   // only (not persisted): reopening the song always starts back at "both hands".
   const [handFilter, setHandFilter] = useState<HandFilter>('both');
 
+  // ---- Whole-song listen-through: a plain, unscored playback of the entire piece
+  // (not a "mode" — just a way to hear and see the whole thing before drilling into
+  // phrases), reusing the same waterfall/keyboard visuals and playback plumbing. ----
+  const [wholeSongActive, setWholeSongActive] = useState(false);
+  const [wholeSongTime, setWholeSongTime] = useState(0);
+  const wholeSongRafRef = useRef<number | null>(null);
+  const wholeSongTokenRef = useRef(0);
+  const filteredSongNotes = useMemo(() => filterByHand(song.notes, handFilter), [song.notes, handFilter]);
+  const { lowMidi: wholeSongLowMidi, highMidi: wholeSongHighMidi } = useMemo(
+    () => computeKeyRange(filteredSongNotes),
+    [filteredSongNotes],
+  );
+  const {
+    right: wholeSongRight,
+    left: wholeSongLeft,
+    attack: wholeSongAttack,
+  } = useMemo(() => computeTouchingKeys(filteredSongNotes, wholeSongTime), [filteredSongNotes, wholeSongTime]);
+
+  const stopWholeSong = useCallback(() => {
+    wholeSongTokenRef.current += 1;
+    if (wholeSongRafRef.current !== null) {
+      cancelAnimationFrame(wholeSongRafRef.current);
+      wholeSongRafRef.current = null;
+    }
+    stopPlayback();
+    setWholeSongActive(false);
+    setWholeSongTime(0);
+  }, []);
+
+  const handlePlayWholeSong = useCallback(() => {
+    stopPlayback();
+    wholeSongTokenRef.current += 1;
+    const token = wholeSongTokenRef.current;
+    setWholeSongActive(true);
+    setWholeSongTime(0);
+    const startWallTime = performance.now() + PLAYBACK_START_DELAY_SECONDS * 1000;
+
+    const tick = () => {
+      if (wholeSongTokenRef.current !== token) return;
+      const t = (performance.now() - startWallTime) / 1000;
+      if (t >= song.durationSeconds) {
+        wholeSongRafRef.current = null;
+        return;
+      }
+      setWholeSongTime(t);
+      wholeSongRafRef.current = requestAnimationFrame(tick);
+    };
+    wholeSongRafRef.current = requestAnimationFrame(tick);
+
+    void playNotes(filteredSongNotes, 0).finally(() => {
+      if (wholeSongTokenRef.current !== token) return;
+      if (wholeSongRafRef.current !== null) {
+        cancelAnimationFrame(wholeSongRafRef.current);
+        wholeSongRafRef.current = null;
+      }
+      setWholeSongActive(false);
+      setWholeSongTime(0);
+    });
+  }, [filteredSongNotes, song.durationSeconds]);
+
+  useEffect(
+    () => () => {
+      if (wholeSongRafRef.current !== null) cancelAnimationFrame(wholeSongRafRef.current);
+    },
+    [],
+  );
+
   // ---- Beginner mode state ----
   const beginnerPhrases = useMemo(() => buildPhrases(song, BEGINNER_MEASURES_PER_PHRASE), [song]);
   const savedProgress = useMemo(() => loadSongProgress(song.id), [song.id]);
@@ -661,12 +728,42 @@ export function PracticeView({ song, onExit, onFinish }: PracticeViewProps) {
         </div>
       </header>
 
+      {wholeSongActive ? (
+        <div className="whole-song-play">
+          <p>曲を通して再生しています。</p>
+          <div className="phrase-actions">
+            <button type="button" onClick={stopWholeSong}>
+              ■ 止めて練習に戻る
+            </button>
+          </div>
+          <NoteWaterfall
+            lowMidi={wholeSongLowMidi}
+            highMidi={wholeSongHighMidi}
+            notes={filteredSongNotes}
+            currentTime={wholeSongTime}
+          />
+          <PianoKeyboard
+            lowMidi={wholeSongLowMidi}
+            highMidi={wholeSongHighMidi}
+            expectedRight={wholeSongRight}
+            expectedLeft={wholeSongLeft}
+            attack={wholeSongAttack}
+          />
+        </div>
+      ) : (
+        <>
       <div className="mode-toggle">
         <button type="button" className={mode === 'beginner' ? 'active' : ''} onClick={() => handleSetMode('beginner')}>
           初級モード
         </button>
         <button type="button" className={mode === 'advanced' ? 'active' : ''} onClick={() => handleSetMode('advanced')}>
           上級モード
+        </button>
+      </div>
+
+      <div className="mode-toggle">
+        <button type="button" onClick={handlePlayWholeSong}>
+          ▶ 曲を通して聴く
         </button>
       </div>
 
@@ -949,6 +1046,8 @@ export function PracticeView({ song, onExit, onFinish }: PracticeViewProps) {
               </div>
             </div>
           )}
+        </>
+      )}
         </>
       )}
     </section>
