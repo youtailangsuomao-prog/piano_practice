@@ -1,6 +1,12 @@
-import { Midi } from '@tonejs/midi';
+import { Midi, Track } from '@tonejs/midi';
 import { NoteEvent, Song } from './types';
-import { assignHandsByChord, assignHandsByTrackOrder, isCleanTwoHandSplit } from './hands';
+import {
+  assignHandsByChord,
+  assignHandsByTrackOrder,
+  isCleanTwoHandSplit,
+  twoTrackCrossingRatio,
+  CLEAN_SPLIT_MAX_CROSSING_RATIO,
+} from './hands';
 
 interface MidiNote {
   midi: number;
@@ -11,6 +17,23 @@ interface MidiNote {
 
 function toNoteEvent(note: MidiNote, hand: 'left' | 'right'): NoteEvent {
   return { midi: note.midi, time: note.time, duration: note.duration, velocity: note.velocity, hand };
+}
+
+/** Among several candidate tracks, find whichever pair looks most like a genuine
+ * two-hand split. Some files tag more than two tracks as piano (e.g. a real right/left
+ * hand pair plus an extra doubling or arpeggio layer that just happens to share the
+ * same instrument) — merging all of them into one chord-splitting guess treats that
+ * extra layer as part of the hand split too, and can produce "hand" assignments
+ * spanning several octaves at once. Returns null if no pair is clean enough to trust. */
+function findBestTwoHandPair(tracks: Track[]): [Track, Track] | null {
+  let best: { a: Track; b: Track; ratio: number } | null = null;
+  for (let i = 0; i < tracks.length; i++) {
+    for (let j = i + 1; j < tracks.length; j++) {
+      const ratio = twoTrackCrossingRatio(tracks[i].notes, tracks[j].notes);
+      if (!best || ratio < best.ratio) best = { a: tracks[i], b: tracks[j], ratio };
+    }
+  }
+  return best && best.ratio <= CLEAN_SPLIT_MAX_CROSSING_RATIO ? [best.a, best.b] : null;
 }
 
 /** Parse an uploaded .mid/.midi file into the app's internal Song format. */
@@ -30,7 +53,14 @@ export async function songFromMidiFile(file: File): Promise<Song> {
   // otherwise every instrument gets thrown into one chord-splitting guess together,
   // producing "hand" assignments with impossible simultaneous jumps across instruments.
   const pianoProgramTracks = nonDrumTracks.filter((track) => track.instrument?.number === 0);
-  const noteTracks = nonDrumTracks.length > 2 && pianoProgramTracks.length > 0 ? pianoProgramTracks : nonDrumTracks;
+  let noteTracks = nonDrumTracks;
+  if (nonDrumTracks.length > 2 && pianoProgramTracks.length > 0) {
+    // More than two piano-tagged tracks: only two of them may actually be the hand
+    // split, with the rest an extra layer — find that pair rather than assuming all
+    // of them belong together.
+    noteTracks =
+      pianoProgramTracks.length === 2 ? pianoProgramTracks : findBestTwoHandPair(pianoProgramTracks) ?? pianoProgramTracks;
+  }
 
   const allNotes = noteTracks.flatMap((track) => track.notes);
 

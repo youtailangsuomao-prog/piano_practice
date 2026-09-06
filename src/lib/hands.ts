@@ -77,18 +77,17 @@ export function assignHandsByChord<T extends HandAssignable>(notes: T[]): Map<T,
   return hands;
 }
 
+export const CLEAN_SPLIT_MAX_CROSSING_RATIO = 0.15;
+
 /**
- * MIDI itself has no dedicated "hand" field — only note/time/track data. But a piano
- * part exported from notation software (as two staves: treble/right hand, bass/left
- * hand) often comes out as exactly two tracks that are genuinely, consistently split
- * by register. When that's true, the track assignment is real ground truth and is more
- * reliable than any per-chord guess (it correctly keeps e.g. a same-hand melodic run
- * together even when it dips into the other hand's usual register). This checks
- * whether two tracks actually look like that: at every moment both play together, is
- * the "higher" track's note actually higher than the "lower" track's note?
+ * At every moment both tracks play together, what fraction of the time is the
+ * "higher" track's note actually LOWER than the "lower" track's note (i.e. the two
+ * tracks' registers cross)? 0 means a perfectly clean, consistent split; used to judge
+ * whether two tracks are genuinely a real hand split (see isCleanTwoHandSplit) and, when
+ * more than two candidate tracks exist, to find whichever pair is the real one.
  */
-export function isCleanTwoHandSplit<T extends HandAssignable>(trackA: T[], trackB: T[]): boolean {
-  if (trackA.length === 0 || trackB.length === 0) return true;
+export function twoTrackCrossingRatio<T extends HandAssignable>(trackA: T[], trackB: T[]): number {
+  if (trackA.length === 0 || trackB.length === 0) return 0;
   const higherIsA = average(trackA.map((n) => n.midi)) >= average(trackB.map((n) => n.midi));
   const higherTrack = higherIsA ? trackA : trackB;
   const lowerTrack = higherIsA ? trackB : trackA;
@@ -114,8 +113,21 @@ export function isCleanTwoHandSplit<T extends HandAssignable>(trackA: T[], track
     i = j;
   }
 
-  if (comparableMoments === 0) return true;
-  return crossings / comparableMoments <= 0.15;
+  return comparableMoments === 0 ? 0 : crossings / comparableMoments;
+}
+
+/**
+ * MIDI itself has no dedicated "hand" field — only note/time/track data. But a piano
+ * part exported from notation software (as two staves: treble/right hand, bass/left
+ * hand) often comes out as exactly two tracks that are genuinely, consistently split
+ * by register. When that's true, the track assignment is real ground truth and is more
+ * reliable than any per-chord guess (it correctly keeps e.g. a same-hand melodic run
+ * together even when it dips into the other hand's usual register). This checks
+ * whether two tracks actually look like that: at every moment both play together, is
+ * the "higher" track's note actually higher than the "lower" track's note?
+ */
+export function isCleanTwoHandSplit<T extends HandAssignable>(trackA: T[], trackB: T[]): boolean {
+  return twoTrackCrossingRatio(trackA, trackB) <= CLEAN_SPLIT_MAX_CROSSING_RATIO;
 }
 
 /** Assign every note in one track to the right hand and the other to the left hand. */
