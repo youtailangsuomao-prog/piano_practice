@@ -64,18 +64,34 @@ export interface PlaybackNoteEvent {
  * the audio by this amount. */
 export const PLAYBACK_START_DELAY_SECONDS = 0.05;
 
-let activeOscillators: OscillatorNode[] = [];
+interface ActiveVoice {
+  osc: OscillatorNode;
+  gain: GainNode;
+}
+
+let activeVoices: ActiveVoice[] = [];
 let activeTimers: ReturnType<typeof setTimeout>[] = [];
 
+/** How long stopPlayback() ramps a still-ringing voice's gain to silence before actually
+ * stopping the oscillator. Cutting an oscillator off immediately (mid-waveform, at
+ * whatever amplitude it happens to be at) creates an abrupt discontinuity that's heard
+ * as a click/pop; a few milliseconds of fade avoids that. */
+const STOP_FADE_SECONDS = 0.015;
+
 export function stopPlayback() {
-  activeOscillators.forEach((osc) => {
+  activeVoices.forEach(({ osc, gain }) => {
     try {
-      osc.stop();
+      const ctx = gain.context;
+      const now = ctx.currentTime;
+      gain.gain.cancelScheduledValues(now);
+      gain.gain.setValueAtTime(gain.gain.value, now);
+      gain.gain.linearRampToValueAtTime(0, now + STOP_FADE_SECONDS);
+      osc.stop(now + STOP_FADE_SECONDS);
     } catch {
       // already stopped
     }
   });
-  activeOscillators = [];
+  activeVoices = [];
   activeTimers.forEach((timer) => clearTimeout(timer));
   activeTimers = [];
 }
@@ -108,8 +124,12 @@ function scheduleNote(ctx: AudioContext, note: NoteEvent, startAt: number, noteD
   }
 
   // Lower notes physically ring longer on a real piano; scale the decay accordingly.
-  const registerFactor = 1.6 + (1 - Math.min(1, (note.midi - 21) / 87)) * 1.8;
-  const sustain = Math.max(noteDuration, 0.2) * registerFactor;
+  // Kept modest and capped in absolute terms — a large multiplier applied uniformly
+  // (including to very short notes) meant busy passages could have far more notes
+  // ringing simultaneously than the piece actually calls for, which is both an
+  // unintended "always pedaled" sound and needless load on the audio hardware.
+  const registerFactor = 1 + (1 - Math.min(1, (note.midi - 21) / 87)) * 1;
+  const sustain = Math.min(Math.max(noteDuration, 0.15) * registerFactor, 3);
   const peak = Math.min(0.22, 0.09 + note.velocity * 0.16);
 
   HARMONICS.forEach(({ mult, amp, decayMul }) => {
@@ -128,7 +148,7 @@ function scheduleNote(ctx: AudioContext, note: NoteEvent, startAt: number, noteD
     gain.connect(voiceOut);
     osc.start(startAt);
     osc.stop(startAt + decayTime + 0.05);
-    activeOscillators.push(osc);
+    activeVoices.push({ osc, gain });
   });
 }
 
